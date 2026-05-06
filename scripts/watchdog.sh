@@ -47,6 +47,7 @@ INTERVENE_THRESHOLD=900    # 无变化判定深度卡住 → 自动干预（900s
 INTERVENE_COOLDOWN=600     # 干预冷却期，防止频繁重试（600s = 10 分钟）
 DAILY_SUMMARY_HOUR=22      # 日报发送时间（22:00）
 JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值（600s = 10 分钟）
+IDLE_CLASSIFY_THRESHOLD=300  # 空闲多久后触发分类通知（300s = 5 分钟）
 
 # 飞书机器人通知（通过 .env 或环境变量设置，不配置则仅发 macOS 通知）
 FEISHU_WEBHOOK="${FEISHU_WEBHOOK:-}"
@@ -221,6 +222,52 @@ notify_daemon_start() {
     "version=$VERSION"
 }
 
+# ── 空闲分类通知 ──────────────────────────────────────────────────────────
+# 调用 classify_idle.py 做关键字分类（+ LLM 降级），根据结果选模板通知
+notify_idle_classified() {
+  local session="$1" duration="$2"
+  local date_str time_str
+  date_str=$(date '+%Y-%m-%d')
+  time_str=$(date '+%H:%M:%S')
+
+  local classify_result category summary last_lines
+  classify_result=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" --llm 2>/dev/null || echo '{}')
+  category=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('category','idle_unknown'))" 2>/dev/null || echo "idle_unknown")
+  summary=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('summary',''))" 2>/dev/null || echo "")
+  last_lines=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('last_lines',''))" 2>/dev/null || echo "")
+
+  # LLM 超时时 category 为 llm_timeout，在通知中说明
+  local template="idle_unknown"
+  local label="空闲（原因不明）"
+  case "$category" in
+    decision_needed)
+      template="idle_decision"
+      label="等待人工决策"
+      ;;
+    task_complete)
+      template="idle_complete"
+      label="任务完成，等待验收"
+      ;;
+    ambiguous)
+      template="idle_decision"
+      label="需要人工查看（多种状态交叉）"
+      [ -n "$summary" ] && summary="[交叉情况] $summary"
+      ;;
+    llm_timeout)
+      template="idle_unknown"
+      label="空闲（LLM 分析超时）"
+      summary="$summary"
+      ;;
+  esac
+
+  log "IDLE $label: $session (${duration}min)"
+  log_event "idle_$category" "$session" "$duration" "idle: $label" "none"
+  osascript -e "display notification \"$session $label ${duration}min\" with title \"Watchdog: idle\"" 2>/dev/null || true
+  notify_from_template "$template" \
+    "session=$session" "duration=$duration" "date=$date_str" "time=$time_str" \
+    "summary=$summary" "last_output=$last_lines"
+}
+
 # ── 日报统计 ─────────────────────────────────────────────────────────────────
 # 从 JSONL 事件文件中聚合当日和累计数据，发送飞书卡片通知
 send_daily_summary() {
@@ -371,7 +418,7 @@ do_check() {
   fi
 
   for session in $sessions; do
-    # ── 空闲 session：清除状态，处理恢复检测 ──
+    # ── 空闲 session：恢复检测 + 空闲分类通知 ──
     if is_idle_prompt "$session"; then
       local was_stuck
       was_stuck=$(get_state "$session" "stuck_notified")
@@ -384,9 +431,33 @@ do_check() {
           log_event "recovered" "$session" "$((stuck_dur / 60))" "session recovered, now at idle prompt" "none"
           notify_recovered "$session" "$((stuck_dur / 60))"
         fi
+        clear_state "$session"
       fi
-      clear_state "$session"
+
+      # 空闲分类：超过阈值后用关键字 + LLM 分类，发通知
+      local idle_since
+      idle_since=$(get_state "$session" "idle_since")
+      if [ -z "$idle_since" ]; then
+        set_state "$session" "idle_since" "$now"
+        idle_since="$now"
+      fi
+      local idle_dur=$((now - idle_since))
+      local idle_notified
+      idle_notified=$(get_state "$session" "idle_notified")
+
+      if [ "$idle_dur" -ge "$IDLE_CLASSIFY_THRESHOLD" ] && [ "$idle_notified" != "1" ]; then
+        notify_idle_classified "$session" "$((idle_dur / 60))"
+        set_state "$session" "idle_notified" "1"
+      fi
       continue
+    fi
+
+    # 非空闲：清除空闲状态
+    local prev_idle_since
+    prev_idle_since=$(get_state "$session" "idle_since")
+    if [ -n "$prev_idle_since" ]; then
+      set_state "$session" "idle_since" ""
+      set_state "$session" "idle_notified" ""
     fi
 
     # ── 信号 1：屏幕 hash 检测（已去除计时器干扰） ──

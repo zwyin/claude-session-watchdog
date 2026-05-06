@@ -71,7 +71,7 @@ class TestTemplates(unittest.TestCase):
                 self.assertIn("title", tpl)
                 self.assertIn("color", tpl)
                 self.assertIn("body", tpl)
-                self.assertIn(tpl["color"], {"red", "orange", "green", "blue", "purple"})
+                self.assertIn(tpl["color"], {"red", "orange", "green", "blue", "purple", "yellow", "turquoise", "violet", "wathet", "indigo", "lime", "gold"})
 
     def test_stuck_template_placeholders(self):
         with open(TEMPLATE_FILE) as f:

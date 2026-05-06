@@ -23,5 +23,20 @@
     "title": "[看门狗] 日报 — {date}",
     "color": "purple",
     "body": "**{date} 当日**\n无响应 **{today_stuck}** 次 · 自动恢复 **{today_interrupt}** 次 · 已恢复 **{today_recovered}** 次\n平均挂起 **{avg_duration}** 分钟 · 共 **{today_events}** 事件\n\n**累计**\n**{total_events}** 事件 · **{total_stuck}** 次无响应 · **{total_interrupt}** 次自动恢复 · **{total_recovered}** 次已恢复\n\n当前监控 **{session_count}** 个会话"
+  },
+  "idle_decision": {
+    "title": "[看门狗] 等待决策: {session}",
+    "color": "yellow",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 需要人工确认或决策\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+  },
+  "idle_complete": {
+    "title": "[看门狗] 任务完成: {session}",
+    "color": "green",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 任务已完成，等待验收\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+  },
+  "idle_unknown": {
+    "title": "[看门狗] 会话空闲: {session}",
+    "color": "blue",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 空闲，无法自动判断原因\n\n**末尾输出**\n{last_output}"
   }
 }

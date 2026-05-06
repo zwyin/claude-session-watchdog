@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code tmux session watchdog v2.0.0
+# Claude Code tmux session watchdog v2.0.1
 # Monitors all tmux sessions running claude-yes/claude, detects stuck sessions,
 # logs events, sends notifications, and auto-intervenes.
 #
@@ -31,7 +31,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # ── Version ─────────────────────────────────────────────────────────────────
-VERSION="2.0.0"
+VERSION="2.0.1"
 
 # ── 配置参数 ────────────────────────────────────────────────────────────────
 # 所有持久化状态统一放在 ~/.claude/ 目录下

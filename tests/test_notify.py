@@ -3,11 +3,15 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import hmac
 import hashlib
 import base64
+
+# 将 scripts 目录加入模块搜索路径
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_FILE = os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")
@@ -903,6 +907,200 @@ class TestCombinedDetection(unittest.TestCase):
         tokens_stagnant = 0
         is_stuck = 1 if (hash_unchanged == 1 or (jsonl_stale == 1 and tokens_stagnant == 1)) else 0
         self.assertEqual(is_stuck, 0)
+
+
+class TestFormatDetection(unittest.TestCase):
+    """Test LLM API format auto-detection."""
+
+    def test_explicit_anthropic(self):
+        from classify_idle import _is_anthropic_format
+        self.assertTrue(_is_anthropic_format("https://any-url.com", fmt="anthropic"))
+
+    def test_explicit_openai(self):
+        from classify_idle import _is_anthropic_format
+        self.assertFalse(_is_anthropic_format("https://api.anthropic.com", fmt="openai"))
+
+    def test_url_anthropic_detected(self):
+        from classify_idle import _is_anthropic_format
+        self.assertTrue(_is_anthropic_format("https://api.minimaxi.com/anthropic"))
+
+    def test_url_openai_default(self):
+        from classify_idle import _is_anthropic_format
+        self.assertFalse(_is_anthropic_format("https://open.bigmodel.cn/api/coding/paas/v4"))
+
+    def test_empty_fmt_uses_url(self):
+        from classify_idle import _is_anthropic_format
+        self.assertTrue(_is_anthropic_format("https://something/anthropic/api", fmt=""))
+
+    def test_none_fmt_uses_url(self):
+        from classify_idle import _is_anthropic_format
+        self.assertTrue(_is_anthropic_format("https://api.anthropic.com", fmt=None))
+
+
+class TestJsonExtraction(unittest.TestCase):
+    """Test JSON extraction from LLM text responses."""
+
+    def setUp(self):
+        from classify_idle import _extract_json_from_text
+        self.extract = _extract_json_from_text
+
+    def test_none_input(self):
+        self.assertIsNone(self.extract(None))
+
+    def test_empty_input(self):
+        self.assertIsNone(self.extract(""))
+
+    def test_plain_json(self):
+        r = self.extract('{"category":"test","summary":"ok"}')
+        self.assertEqual(r, {"category": "test", "summary": "ok"})
+
+    def test_json_in_code_block(self):
+        r = self.extract('```json\n{"category":"test","summary":"ok"}\n```')
+        self.assertEqual(r, {"category": "test", "summary": "ok"})
+
+    def test_json_with_surrounding_text(self):
+        r = self.extract('Here is the result: {"category":"decision_needed","summary":"等待决策"} done')
+        self.assertEqual(r, {"category": "decision_needed", "summary": "等待决策"})
+
+    def test_no_json(self):
+        self.assertIsNone(self.extract("No JSON here, just plain text."))
+
+    def test_nested_braces_in_summary(self):
+        r = self.extract('{"category":"idle_unknown","summary":"function foo() { return 1; }"}')
+        self.assertEqual(r["category"], "idle_unknown")
+
+    def test_chinese_summary(self):
+        r = self.extract('{"category":"task_complete","summary":"任务已完成，等待验收"}')
+        self.assertEqual(r["category"], "task_complete")
+        self.assertEqual(r["summary"], "任务已完成，等待验收")
+
+
+class TestKeywordClassification(unittest.TestCase):
+    """Test keyword-based idle session classification."""
+
+    def setUp(self):
+        from classify_idle import classify_by_keywords
+        self.classify = classify_by_keywords
+
+    def test_decision_needed_chinese(self):
+        lines = ["我建议使用方案A，你觉得怎么样？"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "decision_needed")
+        self.assertTrue(len(ctx) > 0)
+
+    def test_decision_needed_english(self):
+        lines = ["what do you think about this approach?"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "decision_needed")
+
+    def test_task_complete_chinese(self):
+        lines = ["功能已实现，请测试验证一下。"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "task_complete")
+
+    def test_task_complete_english(self):
+        lines = ["I've completed the implementation. Ready for review."]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "task_complete")
+
+    def test_ambiguous_both_match(self):
+        lines = ["任务已完成。你觉得怎么样？"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "ambiguous")
+
+    def test_idle_unknown(self):
+        lines = ["Some random output", "Nothing special here"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "idle_unknown")
+
+    def test_exclude_permission_prompt_only(self):
+        lines = ["Allow", "Yes"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "idle_unknown")
+
+    def test_decision_despite_permission_prompt(self):
+        lines = ["Allow", "我建议这个方案，你觉得怎么样？"]
+        cat, ctx = self.classify(lines)
+        self.assertEqual(cat, "decision_needed")
+
+
+class TestCallLlmApiConstruction(unittest.TestCase):
+    """Test _call_llm builds correct requests for both API formats."""
+
+    def setUp(self):
+        from classify_idle import _call_llm
+        self.call_llm = _call_llm
+
+    def test_anthropic_format_url(self):
+        """Anthropic format appends /v1/messages."""
+        import urllib.request
+        original = urllib.request.Request
+        captured = {}
+
+        def mock_request(url, data=None, headers=None):
+            captured['url'] = url
+            captured['headers'] = headers
+            return original(url, data=data, headers=headers)
+
+        import classify_idle
+        orig_req = urllib.request.Request
+        urllib.request.Request = mock_request
+        try:
+            self.call_llm("https://api.minimaxi.com/anthropic", "key", "model", "test", fmt="anthropic")
+        except Exception:
+            pass
+        finally:
+            urllib.request.Request = orig_req
+        self.assertEqual(captured['url'], "https://api.minimaxi.com/anthropic/v1/messages")
+        self.assertIn("x-api-key", captured['headers'])
+
+    def test_openai_format_url(self):
+        """OpenAI format appends /chat/completions."""
+        import urllib.request
+        captured = {}
+
+        def mock_request(url, data=None, headers=None):
+            captured['url'] = url
+            captured['headers'] = headers
+            return urllib.request.Request.__new__(urllib.request.Request)
+
+        import classify_idle
+        orig_req = urllib.request.Request
+        urllib.request.Request = mock_request
+        try:
+            self.call_llm("https://open.bigmodel.cn/api/paas/v4", "key", "model", "test", fmt="openai")
+        except Exception:
+            pass
+        finally:
+            urllib.request.Request = orig_req
+        self.assertEqual(captured['url'], "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+        self.assertIn("Authorization", captured['headers'])
+
+
+class TestVersionAndConfig(unittest.TestCase):
+    """Test version and config consistency."""
+
+    def test_version_is_201(self):
+        result = subprocess.run(
+            ["bash", "-c", "source scripts/watchdog.sh && echo $VERSION"],
+            capture_output=True, text=True, timeout=5,
+        )
+        self.assertIn("2.0.1", result.stdout)
+
+    def test_start_template_updated(self):
+        with open("scripts/notify-templates.json") as f:
+            templates = json.load(f)
+        body = templates["start"]["body"]
+        self.assertIn("空闲分类", body)
+        self.assertIn("LLM", body)
+        self.assertIn("5 分钟", body)
+
+    def test_idle_classify_threshold_exists(self):
+        result = subprocess.run(
+            ["bash", "-c", "source scripts/watchdog.sh && echo $IDLE_CLASSIFY_THRESHOLD"],
+            capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(result.stdout.strip(), "300")
 
 
 if __name__ == "__main__":

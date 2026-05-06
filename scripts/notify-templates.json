@@ -17,7 +17,7 @@
   "start": {
     "title": "[看门狗] 服务启动 v{version}",
     "color": "blue",
-    "body": "**版本:** {version}\n**监控会话数:** {session_count}\n**启动时间:** {date} {time}\n\n**检测方式**\n- 屏幕输出哈希（去除计时器干扰）\n- JSONL 会话日志最后记录时间\n- 输出 token 数停滞检测\n\n**触发条件**\n- 告警: 10 分钟无有效输出\n- 自动恢复: 15 分钟 → Ctrl-C + 继续任务\n- 深度检测: 哈希变化但 JSONL 停滞 + token 不变 → 仍判定卡住\n- 冷却期: 10 分钟\n\n**日报:** 每日 22:00"
+    "body": "**版本:** {version}\n**监控会话数:** {session_count}\n**启动时间:** {date} {time}\n\n**检测方式**\n- 屏幕输出哈希（去除计时器干扰）\n- JSONL 会话日志最后记录时间\n- 输出 token 数停滞检测\n\n**卡住检测**\n- 告警: 10 分钟无有效输出\n- 自动恢复: 15 分钟 → Ctrl-C + 继续任务\n- 深度检测: 哈希变化但 JSONL 停滞 + token 不变 → 仍判定卡住\n- 冷却期: 10 分钟\n\n**空闲分类（5 分钟触发）**\n- 关键字匹配 → decision_needed / task_complete / idle_unknown\n- 模糊时调 LLM 语义分析（MiniMax 主用 + 智谱备用）\n- 仅通知不干预\n\n**日报:** 每日 22:00"
   },
   "daily": {
     "title": "[看门狗] 日报 — {date}",

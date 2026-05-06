@@ -117,37 +117,77 @@ def classify_by_keywords(lines):
         return "idle_unknown", lines[-3:]
 
 
-def _call_llm(base_url, api_key, model, prompt):
-    """Call a single LLM endpoint. Returns parsed (category, summary) or None."""
-    import urllib.request
+def _is_anthropic_format(base_url, fmt=None):
+    """判断 API 格式。优先使用显式 fmt 参数（'anthropic' 或 'openai'），否则从 base URL 推断。"""
+    if fmt:
+        return fmt.lower().strip() == "anthropic"
+    return "anthropic" in base_url.lower()
 
-    url = f"{base_url}/v1/messages"
-    payload = json.dumps({
-        "model": model,
-        "max_tokens": 200,
-        "messages": [{"role": "user", "content": prompt}],
-    }).encode("utf-8")
 
-    headers = {
-        "Content-Type": "application/json",
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01",
-    }
-
-    req = urllib.request.Request(url, data=payload, headers=headers)
-    resp = urllib.request.urlopen(req, timeout=10)
-    data = json.loads(resp.read().decode())
-
-    text = data.get("content", [{}])[0].get("text", "")
-    # Robust JSON extraction — handles braces inside summary values
+def _extract_json_from_text(text):
+    """从 LLM 回复中提取 JSON 对象。"""
+    if not text:
+        return None
     decoder = json.JSONDecoder()
     for i in range(len(text)):
         if text[i] == '{':
             try:
                 result, _ = decoder.raw_decode(text, i)
-                return result.get("category"), result.get("summary", "")
+                return result
             except json.JSONDecodeError:
                 continue
+    return None
+
+
+def _call_llm(base_url, api_key, model, prompt, fmt=None):
+    """调用单个 LLM 端点。自动识别 Anthropic/OpenAI 格式。返回 (category, summary) 或 None。"""
+    import urllib.request
+
+    is_anthropic = _is_anthropic_format(base_url, fmt)
+
+    if is_anthropic:
+        url = f"{base_url}/v1/messages"
+        payload = json.dumps({
+            "model": model,
+            "max_tokens": 500,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        }
+    else:
+        url = f"{base_url}/chat/completions"
+        payload = json.dumps({
+            "model": model,
+            "max_tokens": 500,
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        }
+
+    req = urllib.request.Request(url, data=payload, headers=headers)
+    resp = urllib.request.urlopen(req, timeout=20)
+    data = json.loads(resp.read().decode())
+
+    # 提取回复文本
+    if is_anthropic:
+        # Anthropic 格式：content 是数组，可能有 thinking 和 text 多个 item
+        text = ""
+        for item in data.get("content", []):
+            if item.get("type") == "text":
+                text = item.get("text", "")
+                break
+    else:
+        # OpenAI 格式：choices[0].message.content
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+    parsed = _extract_json_from_text(text)
+    if parsed:
+        return parsed.get("category"), parsed.get("summary", "")
     return None
 
 
@@ -156,6 +196,8 @@ def classify_with_llm(lines):
     Env vars:
       WATCHDOG_LLM_API_KEY / WATCHDOG_LLM_BASE_URL / WATCHDOG_LLM_MODEL  (primary)
       WATCHDOG_LLM_API_KEY_2 / WATCHDOG_LLM_BASE_URL_2 / WATCHDOG_LLM_MODEL_2  (fallback)
+
+    自动识别 Anthropic / OpenAI 兼容格式（根据 base URL 判断）。
     """
     api_key = os.environ.get("WATCHDOG_LLM_API_KEY", "")
     if not api_key:
@@ -163,6 +205,7 @@ def classify_with_llm(lines):
 
     base_url = os.environ.get("WATCHDOG_LLM_BASE_URL", "https://api.anthropic.com")
     model = os.environ.get("WATCHDOG_LLM_MODEL", "claude-haiku-4-5-20251001")
+    fmt = os.environ.get("WATCHDOG_LLM_FORMAT", "")
 
     context = "\n".join(lines[-20:])
     prompt = f"""Analyze this Claude Code session output (last 20 lines).
@@ -179,7 +222,7 @@ Session output:
 
     # Primary endpoint
     try:
-        result = _call_llm(base_url, api_key, model, prompt)
+        result = _call_llm(base_url, api_key, model, prompt, fmt=fmt)
         if result:
             return result
     except Exception:
@@ -190,8 +233,9 @@ Session output:
     if api_key_2:
         base_url_2 = os.environ.get("WATCHDOG_LLM_BASE_URL_2", "https://api.anthropic.com")
         model_2 = os.environ.get("WATCHDOG_LLM_MODEL_2", "claude-haiku-4-5-20251001")
+        fmt_2 = os.environ.get("WATCHDOG_LLM_FORMAT_2", "")
         try:
-            result = _call_llm(base_url_2, api_key_2, model_2, prompt)
+            result = _call_llm(base_url_2, api_key_2, model_2, prompt, fmt=fmt_2)
             if result:
                 return result
         except Exception:

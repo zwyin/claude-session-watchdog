@@ -149,7 +149,7 @@ def _call_llm(base_url, api_key, model, prompt, fmt=None):
         url = f"{base_url}/v1/messages"
         payload = json.dumps({
             "model": model,
-            "max_tokens": 500,
+            "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}],
         }).encode("utf-8")
         headers = {
@@ -161,7 +161,7 @@ def _call_llm(base_url, api_key, model, prompt, fmt=None):
         url = f"{base_url}/chat/completions"
         payload = json.dumps({
             "model": model,
-            "max_tokens": 500,
+            "max_tokens": 2000,
             "messages": [{"role": "user", "content": prompt}],
         }).encode("utf-8")
         headers = {
@@ -170,7 +170,7 @@ def _call_llm(base_url, api_key, model, prompt, fmt=None):
         }
 
     req = urllib.request.Request(url, data=payload, headers=headers)
-    resp = urllib.request.urlopen(req, timeout=20)
+    resp = urllib.request.urlopen(req, timeout=60)
     data = json.loads(resp.read().decode())
 
     # 提取回复文本

@@ -129,13 +129,16 @@ def _extract_json_from_text(text):
     if not text:
         return None
     decoder = json.JSONDecoder()
-    for i in range(len(text)):
-        if text[i] == '{':
-            try:
-                result, _ = decoder.raw_decode(text, i)
-                return result
-            except json.JSONDecodeError:
-                continue
+    idx = 0
+    while idx < len(text):
+        brace = text.find('{', idx)
+        if brace == -1:
+            break
+        try:
+            result, _ = decoder.raw_decode(text, brace)
+            return result
+        except json.JSONDecodeError:
+            idx = brace + 1
     return None
 
 

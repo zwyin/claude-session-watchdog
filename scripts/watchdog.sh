@@ -244,12 +244,12 @@ notify_idle_classified() {
 import sys, json
 d = json.load(sys.stdin)
 print(d.get('category','idle_unknown'))
-print(d.get('summary',''))
+print(d.get('summary','').replace('\n', '\\n'))
 ll = d.get('last_lines','').replace('\n', '\\n')
 print(ll)
 " 2>/dev/null) || parsed="idle_unknown"
   category=$(echo "$parsed" | sed -n '1p')
-  summary=$(echo "$parsed" | sed -n '2p')
+  summary=$(echo "$parsed" | sed -n '2p' | sed 's/\\n/ /g')
   last_lines=$(echo "$parsed" | sed -n '3p' | sed 's/\\n/\'$'\n/g')
 
   # LLM 超时时 category 为 llm_timeout，在通知中说明
@@ -598,12 +598,23 @@ start_daemon() {
     rm -f "$PID_FILE"
   fi
 
-  # 原子锁：mkdir 成功则获得锁，失败则说明已有实例
+  # 原子锁：mkdir 成功则获得锁，失败则检查是否为残留锁
   if ! mkdir "$LOCK_FILE" 2>/dev/null; then
-    echo "Another watchdog instance is running (lock: $LOCK_FILE)"
-    echo "If stale, remove it: rm -rf $LOCK_FILE"
-    return 1
+    # 检查残留锁：如果有 PID 文件且进程已死，说明是残留锁
+    local lock_pid=""
+    [ -f "$LOCK_FILE/pid" ] && lock_pid=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+    if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
+      log "WARN: stale lock detected (pid $lock_pid not running), removing"
+      rm -rf "$LOCK_FILE"
+      mkdir "$LOCK_FILE" || { echo "Cannot acquire lock"; return 1; }
+    else
+      echo "Another watchdog instance is running (lock: $LOCK_FILE)"
+      echo "If stale, remove it: rm -rf $LOCK_FILE"
+      return 1
+    fi
   fi
+  # 将 PID 写入锁目录，供残留检测使用
+  echo $$ > "$LOCK_FILE/pid"
 
   log "Starting watchdog daemon..."
   init_state

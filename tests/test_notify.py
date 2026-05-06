@@ -1103,5 +1103,66 @@ class TestVersionAndConfig(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "300")
 
 
+class TestLlmFallbackPath(unittest.TestCase):
+    """Test primary-fail → fallback-success logic."""
+
+    def test_primary_fail_fallback_succeeds(self):
+        import classify_idle
+        call_count = [0]
+
+        def mock_call(base_url, api_key, model, prompt, fmt=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise ConnectionError("primary down")
+            return ("task_complete", "done")
+
+        original = classify_idle._call_llm
+        classify_idle._call_llm = mock_call
+        orig_key = os.environ.get("WATCHDOG_LLM_API_KEY")
+        orig_key2 = os.environ.get("WATCHDOG_LLM_API_KEY_2")
+        try:
+            os.environ["WATCHDOG_LLM_API_KEY"] = "key1"
+            os.environ["WATCHDOG_LLM_API_KEY_2"] = "key2"
+            result = classify_idle.classify_with_llm(["some line"])
+            self.assertEqual(result, ("task_complete", "done"))
+            self.assertEqual(call_count[0], 2)
+        finally:
+            classify_idle._call_llm = original
+            if orig_key:
+                os.environ["WATCHDOG_LLM_API_KEY"] = orig_key
+            else:
+                os.environ.pop("WATCHDOG_LLM_API_KEY", None)
+            if orig_key2:
+                os.environ["WATCHDOG_LLM_API_KEY_2"] = orig_key2
+            else:
+                os.environ.pop("WATCHDOG_LLM_API_KEY_2", None)
+
+    def test_both_fail_returns_timeout(self):
+        import classify_idle
+
+        def mock_call(base_url, api_key, model, prompt, fmt=None):
+            raise ConnectionError("all down")
+
+        original = classify_idle._call_llm
+        classify_idle._call_llm = mock_call
+        orig_key = os.environ.get("WATCHDOG_LLM_API_KEY")
+        orig_key2 = os.environ.get("WATCHDOG_LLM_API_KEY_2")
+        try:
+            os.environ["WATCHDOG_LLM_API_KEY"] = "key1"
+            os.environ["WATCHDOG_LLM_API_KEY_2"] = "key2"
+            result = classify_idle.classify_with_llm(["some line"])
+            self.assertEqual(result[0], "llm_timeout")
+        finally:
+            classify_idle._call_llm = original
+            if orig_key:
+                os.environ["WATCHDOG_LLM_API_KEY"] = orig_key
+            else:
+                os.environ.pop("WATCHDOG_LLM_API_KEY", None)
+            if orig_key2:
+                os.environ["WATCHDOG_LLM_API_KEY_2"] = orig_key2
+            else:
+                os.environ.pop("WATCHDOG_LLM_API_KEY_2", None)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,27 @@
+{
+  "stuck": {
+    "title": "[看门狗] 会话无响应: {session}",
+    "color": "red",
+    "body": "**会话:** {session}\n**无响应时长:** {duration} 分钟\n**检出时间:** {date} {time}\n\n**运行状态**\n{status_line}\n\n**末尾输出**\n{last_output}"
+  },
+  "intervene": {
+    "title": "[看门狗] 自动恢复: {session}",
+    "color": "orange",
+    "body": "**会话:** {session}\n**挂起时长:** {duration} 分钟\n**恢复时间:** {date} {time}\n**动作:** {action}\n\n**运行状态**\n{status_line}\n\n**末尾输出**\n{last_output}"
+  },
+  "recovered": {
+    "title": "[看门狗] 已恢复响应: {session}",
+    "color": "green",
+    "body": "**会话:** {session}\n**中断时长:** {duration} 分钟\n**恢复时间:** {date} {time}"
+  },
+  "start": {
+    "title": "[看门狗] 服务启动 v{version}",
+    "color": "blue",
+    "body": "**版本:** {version}\n**监控会话数:** {session_count}\n**启动时间:** {date} {time}\n\n**检测方式**\n- 屏幕输出哈希（去除计时器干扰）\n- JSONL 会话日志最后记录时间\n- 输出 token 数停滞检测\n\n**触发条件**\n- 告警: 10 分钟无有效输出\n- 自动恢复: 15 分钟 → Ctrl-C + 继续任务\n- 深度检测: 哈希变化但 JSONL 停滞 + token 不变 → 仍判定卡住\n- 冷却期: 10 分钟\n\n**日报:** 每日 22:00"
+  },
+  "daily": {
+    "title": "[看门狗] 日报 — {date}",
+    "color": "purple",
+    "body": "**{date} 当日**\n无响应 **{today_stuck}** 次 · 自动恢复 **{today_interrupt}** 次 · 已恢复 **{today_recovered}** 次\n平均挂起 **{avg_duration}** 分钟 · 共 **{today_events}** 事件\n\n**累计**\n**{total_events}** 事件 · **{total_stuck}** 次无响应 · **{total_interrupt}** 次自动恢复 · **{total_recovered}** 次已恢复\n\n当前监控 **{session_count}** 个会话"
+  }
+}

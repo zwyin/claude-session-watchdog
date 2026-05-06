@@ -37,6 +37,28 @@ cp .env.example .env
 
 不配置 `.env` 则仅发送 macOS 本地通知，不推送飞书。
 
+### 空闲分类（可选）
+
+空闲会话在 5 分钟后自动分类并推送通知。支持 LLM 语义分析以提高准确率：
+
+```bash
+# 在 .env 中添加 LLM 配置（可选，不配则仅用关键字匹配）
+WATCHDOG_LLM_API_KEY=sk-xxx
+WATCHDOG_LLM_BASE_URL=https://api.anthropic.com
+WATCHDOG_LLM_MODEL=claude-haiku-4-5-20251001
+# 可选：备用端点（主端点失败时自动切换）
+WATCHDOG_LLM_API_KEY_2=sk-xxx
+WATCHDOG_LLM_BASE_URL_2=https://api.anthropic.com
+WATCHDOG_LLM_MODEL_2=claude-haiku-4-5-20251001
+```
+
+分类结果：
+- **decision_needed**（黄色）— 等待人工决策
+- **task_complete**（绿色）— 任务完成，等待验收
+- **idle_unknown**（蓝色）— 无法自动判断
+
+空闲会话只通知，不自动干预。只有明确卡住才会自动 Ctrl-C。
+
 ## 快速开始
 
 ```bash
@@ -65,7 +87,7 @@ cp .env.example .env
 # 停止
 ./scripts/watchdog.sh stop
 
-# 发送测试通知（stuck/intervene/recovered/start/daily 五种）
+# 发送测试通知（stuck/intervene/recovered/start/daily/idle_decision/idle_complete/idle_unknown 八种）
 ./scripts/watchdog.sh test-notify
 
 # 手动发送日报
@@ -87,7 +109,8 @@ launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist
 | 文件 | 说明 |
 |------|------|
 | `scripts/watchdog.sh` | 主脚本 |
-| `scripts/notify-templates.json` | 飞书通知模板 |
+| `scripts/classify_idle.py` | 空闲会话分类（关键字 + LLM 语义） |
+| `scripts/notify-templates.json` | 飞书通知模板（8 种） |
 | `.env.example` | 通知配置模板 |
 | `~/.claude/watchdog.pid` | 后台进程 PID |
 | `~/.claude/watchdog.lock` | 进程锁文件 |
@@ -107,6 +130,7 @@ launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist
 | INTERVENE_THRESHOLD | 900s (15min) | 自动 Ctrl-C 干预 |
 | INTERVENE_COOLDOWN | 600s (10min) | 干预冷却期 |
 | JSONL_STALE_THRESHOLD | 600s (10min) | JSONL 日志无新记录判定 |
+| IDLE_CLASSIFY_THRESHOLD | 300s (5min) | 空闲后触发分类通知 |
 | DAILY_SUMMARY_HOUR | 22 (22:00) | 日报发送时间 |
 
 ## 文档索引

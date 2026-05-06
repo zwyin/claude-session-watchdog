@@ -278,7 +278,7 @@ get_pane_hash() {
   tmux capture-pane -t "$session" -p -S -50 2>/dev/null \
     | tail -20 \
     | sed -E 's/[0-9]+m [0-9]+s/TIMER/g; s/[0-9]+m[0-9]+s/TIMER/g; s/[0-9]+:[0-9]+(am|pm)?/TIME/g' \
-    | md5 2>/dev/null || echo ""
+    | md5 2>/dev/null | cut -d' ' -f1 || md5sum 2>/dev/null | cut -d' ' -f1 || echo ""
 }
 
 # ── JSONL 最后记录时间（秒） ──────────────────────────────────────────────
@@ -715,7 +715,7 @@ health_check() {
   # 检查日志是否在更新
   if [ -f "$LOG_FILE" ]; then
     local log_age
-    log_age=$(( $(date +%s) - $(stat -f %m "$LOG_FILE" 2>/dev/null || echo 0) ))
+    log_age=$(( $(date +%s) - $(stat -f %m "$LOG_FILE" 2>/dev/null || stat -c %Y "$LOG_FILE" 2>/dev/null || echo 0) ))
     if [ "$log_age" -lt 300 ] 2>/dev/null; then
       echo "Log:     FRESH (${log_age}s ago)"
     else

@@ -1082,13 +1082,13 @@ class TestVersionAndConfig(unittest.TestCase):
 
     def test_version_is_201(self):
         result = subprocess.run(
-            ["bash", "-c", "source scripts/watchdog.sh && echo $VERSION"],
+            ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $VERSION"],
             capture_output=True, text=True, timeout=5,
         )
         self.assertIn("2.0.1", result.stdout)
 
     def test_start_template_updated(self):
-        with open("scripts/notify-templates.json") as f:
+        with open(os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")) as f:
             templates = json.load(f)
         body = templates["start"]["body"]
         self.assertIn("空闲分类", body)
@@ -1097,7 +1097,7 @@ class TestVersionAndConfig(unittest.TestCase):
 
     def test_idle_classify_threshold_exists(self):
         result = subprocess.run(
-            ["bash", "-c", "source scripts/watchdog.sh && echo $IDLE_CLASSIFY_THRESHOLD"],
+            ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $IDLE_CLASSIFY_THRESHOLD"],
             capture_output=True, text=True, timeout=5,
         )
         self.assertEqual(result.stdout.strip(), "300")

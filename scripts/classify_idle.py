@@ -72,7 +72,7 @@ def capture_last_lines(session, count=30):
         # Strip NBSP, filter empty lines
         lines = []
         for line in result.stdout.split("\n"):
-            line = line.replace("\xc2\xa0", " ").strip()
+            line = line.replace("\xc2\xa0", " ").replace("\r", "").strip()
             if line:
                 lines.append(line)
         return lines[-count:]
@@ -119,7 +119,7 @@ def classify_by_keywords(lines):
 
 def _is_anthropic_format(base_url, fmt=None):
     """判断 API 格式。优先使用显式 fmt 参数（'anthropic' 或 'openai'），否则从 base URL 推断。"""
-    if fmt:
+    if fmt and fmt.strip():
         return fmt.lower().strip() == "anthropic"
     return "anthropic" in base_url.lower()
 

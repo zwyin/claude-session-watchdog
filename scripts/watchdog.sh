@@ -231,7 +231,13 @@ notify_idle_classified() {
   time_str=$(date '+%H:%M:%S')
 
   local classify_result category summary last_lines
-  classify_result=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" --llm 2>/dev/null || echo '{}')
+  local classify_err
+  classify_err=$(mktemp)
+  classify_result=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" --llm 2>"$classify_err" || echo '{}')
+  if [ -s "$classify_err" ]; then
+    log "CLASSIFY_ERROR[$session]: $(head -3 "$classify_err")"
+  fi
+  rm -f "$classify_err"
   # 用 Python 一次提取全部字段，以 ASCII 分隔符分开（避免 read -r 截断多行内容）
   local parsed
   parsed=$(echo "$classify_result" | python3 -c "

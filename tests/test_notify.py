@@ -60,7 +60,8 @@ class TestTemplates(unittest.TestCase):
     def test_all_event_types_defined(self):
         with open(TEMPLATE_FILE) as f:
             data = json.load(f)
-        for event in ("stuck", "intervene", "recovered", "start", "daily"):
+        for event in ("stuck", "intervene", "recovered", "start", "daily",
+                      "idle_decision", "idle_complete", "idle_unknown"):
             self.assertIn(event, data)
 
     def test_each_template_has_required_fields(self):

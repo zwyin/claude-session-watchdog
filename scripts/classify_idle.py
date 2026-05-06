@@ -84,32 +84,28 @@ def classify_by_keywords(lines):
     """Run keyword matching on lines, return (category, matched_context)."""
     text = "\n".join(lines)
 
-    # Check exclude patterns first — skip simple permission prompts
-    for pat in EXCLUDE_PATTERNS:
-        if re.search(pat, text, re.MULTILINE):
-            # If ONLY exclude patterns match, don't classify as decision
-            pass
+    # Check exclude patterns — simple permission prompts handled by claude-yes
+    has_exclude = any(re.search(pat, text, re.MULTILINE) for pat in EXCLUDE_PATTERNS)
 
     decision_hits = []
     complete_hits = []
 
     for pat in DECISION_PATTERNS:
-        m = re.search(pat, text)
-        if m:
-            # Get surrounding context (the line containing the match)
-            for line in lines:
-                if re.search(pat, line):
-                    decision_hits.append(line[:120])
+        for line in lines:
+            if re.search(pat, line):
+                decision_hits.append(line[:120])
 
     for pat in COMPLETE_PATTERNS:
-        m = re.search(pat, text)
-        if m:
-            for line in lines:
-                if re.search(pat, line):
-                    complete_hits.append(line[:120])
+        for line in lines:
+            if re.search(pat, line):
+                complete_hits.append(line[:120])
 
     has_decision = len(decision_hits) > 0
     has_complete = len(complete_hits) > 0
+
+    # Only simple permission prompts (no real decision/complete) → unknown
+    if not has_decision and not has_complete and has_exclude:
+        return "idle_unknown", lines[-3:]
 
     if has_decision and has_complete:
         return "ambiguous", decision_hits + complete_hits
@@ -143,10 +139,15 @@ def _call_llm(base_url, api_key, model, prompt):
     data = json.loads(resp.read().decode())
 
     text = data.get("content", [{}])[0].get("text", "")
-    m = re.search(r'\{[^}]+\}', text)
-    if m:
-        result = json.loads(m.group())
-        return result.get("category"), result.get("summary", "")
+    # Robust JSON extraction — handles braces inside summary values
+    decoder = json.JSONDecoder()
+    for i in range(len(text)):
+        if text[i] == '{':
+            try:
+                result, _ = decoder.raw_decode(text, i)
+                return result.get("category"), result.get("summary", "")
+            except json.JSONDecodeError:
+                continue
     return None
 
 

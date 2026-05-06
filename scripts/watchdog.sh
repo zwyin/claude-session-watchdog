@@ -232,9 +232,13 @@ notify_idle_classified() {
 
   local classify_result category summary last_lines
   classify_result=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" --llm 2>/dev/null || echo '{}')
-  category=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('category','idle_unknown'))" 2>/dev/null || echo "idle_unknown")
-  summary=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('summary',''))" 2>/dev/null || echo "")
-  last_lines=$(echo "$classify_result" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('last_lines',''))" 2>/dev/null || echo "")
+  read -r category summary last_lines <<< "$(echo "$classify_result" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('category','idle_unknown'))
+print(d.get('summary',''))
+print(d.get('last_lines',''))
+" 2>/dev/null)" || { category="idle_unknown"; summary=""; last_lines=""; }
 
   # LLM 超时时 category 为 llm_timeout，在通知中说明
   local template="idle_unknown"

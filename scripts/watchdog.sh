@@ -46,7 +46,7 @@ STUCK_THRESHOLD=600        # 无变化判定卡住 → 通知（600s = 10 分钟
 INTERVENE_THRESHOLD=900    # 无变化判定深度卡住 → 自动干预（900s = 15 分钟）
 INTERVENE_COOLDOWN=600     # 干预冷却期，防止频繁重试（600s = 10 分钟）
 DAILY_SUMMARY_HOUR=22      # 晚报发送时间（22:00）
-MORNING_SUMMARY_HOUR=8     # 早报发送时间（08:00）
+MORNING_SUMMARY_HOUR=08    # 早报发送时间（08:00，必须补零匹配 date +%H）
 JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值（600s = 10 分钟）
 IDLE_CLASSIFY_THRESHOLD=300  # 空闲多久后触发分类通知（300s = 5 分钟）
 
@@ -632,9 +632,6 @@ start_daemon() {
       return 1
     fi
   fi
-  # 将 PID 写入锁目录，供残留检测使用
-  echo $$ > "$LOCK_FILE/pid"
-
   log "Starting watchdog daemon..."
   init_state
 
@@ -648,6 +645,7 @@ start_daemon() {
 
   local pid=$!
   echo $pid > "$PID_FILE"
+  echo $pid > "$LOCK_FILE/pid"
   log "Watchdog started (pid $pid), checking every ${SAMPLE_INTERVAL}s"
 
   local count
@@ -896,7 +894,7 @@ case "${1:-run}" in
   run)            do_check ;;
   daemon)         run_foreground ;;
   test-notify)    test_notify ;;
-  daily-summary)  send_daily_summary ;;
+  daily-summary)  send_period_summary "evening_report" "$(date '+%Y-%m-%d')T08:00:00" "$(date '+%Y-%m-%d')T22:00:00" ;;
   log)            show_log "$@" ;;
   sessions)       show_sessions ;;
   health)         health_check ;;

@@ -23,8 +23,19 @@ from datetime import datetime
 from collections import defaultdict
 
 
+def _to_aware_local(dt):
+    """确保 datetime 是带时区信息的本地时间。naive 输入视为本地时间。"""
+    if dt.tzinfo is None:
+        from datetime import timezone
+        local_tz = datetime.now(timezone.utc).astimezone().tzinfo
+        return dt.replace(tzinfo=local_tz)
+    return dt.astimezone()
+
+
 def load_events(events_file, time_start, time_end):
     """Load events from JSONL file, filter by [time_start, time_end)."""
+    time_start = _to_aware_local(time_start)
+    time_end = _to_aware_local(time_end)
     events = []
     try:
         with open(events_file, "r", encoding="utf-8") as f:
@@ -39,16 +50,12 @@ def load_events(events_file, time_start, time_end):
                 ts_str = event.get("timestamp", "")
                 if not ts_str:
                     continue
-                # Parse UTC timestamp, compare in local context
-                # JSONL stores UTC (e.g., "2026-05-06T14:23:00Z")
-                # time_start/time_end are local time
-                # Convert event timestamp to local for comparison
                 try:
                     if ts_str.endswith("Z"):
                         ts_utc = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
                         ts_local = ts_utc.astimezone()
                     else:
-                        ts_local = datetime.fromisoformat(ts_str)
+                        ts_local = _to_aware_local(datetime.fromisoformat(ts_str))
                 except (ValueError, TypeError):
                     continue
                 if time_start <= ts_local < time_end:

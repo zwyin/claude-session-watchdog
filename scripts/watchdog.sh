@@ -692,14 +692,15 @@ run_foreground() {
   done
 }
 
-# ── 测试通知（发送 5 种类型的样例通知）────────────────────────────────────
+# ── 测试通知（发送 8 种类型的样例通知）────────────────────────────────────
 test_notify() {
-  echo "Sending test notifications (5 types)..."
-  notify_stuck "test-session" "12"
+  echo "Sending test notifications (8 types)..."
+  local ts="[测试]"
+  notify_stuck "${ts}test-session" "12"
   sleep 1
-  notify_intervene "test-session" "16"
+  notify_intervene "${ts}test-session" "16"
   sleep 1
-  notify_recovered "test-session" "5"
+  notify_recovered "${ts}test-session" "5"
   sleep 1
   notify_daemon_start "14"
   sleep 1
@@ -707,12 +708,25 @@ test_notify() {
   local sample_events="42" sample_stuck="3" sample_interrupt="2" sample_recovered="3" sample_avg="8"
   local sample_total="120" sample_total_stuck="18" sample_total_interrupt="12" sample_total_recovered="18"
   notify_from_template "daily" \
-    "date=$(date '+%Y-%m-%d')" "today_events=$sample_events" \
+    "date=$(date '+%Y-%m-%d') ${ts}" "today_events=$sample_events" \
     "today_stuck=$sample_stuck" "today_interrupt=$sample_interrupt" \
     "today_recovered=$sample_recovered" "avg_duration=$sample_avg" \
     "total_events=$sample_total" "total_stuck=$sample_total_stuck" \
     "total_interrupt=$sample_total_interrupt" "total_recovered=$sample_total_recovered" \
     "session_count=3"
+  sleep 1
+  # Idle classification test notifications
+  notify_from_template "idle_decision" \
+    "session=${ts}test-session" "duration=8" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
+    "summary=是否使用 Redis 作为缓存方案？" "last_output=我建议用 Redis，你觉得呢？"
+  sleep 1
+  notify_from_template "idle_complete" \
+    "session=${ts}test-session" "duration=5" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
+    "summary=接口改造已完成，代码已提交" "last_output=功能全部完成"
+  sleep 1
+  notify_from_template "idle_unknown" \
+    "session=${ts}test-session" "duration=10" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
+    "last_output=无明确分类信息"
   echo "Done."
 }
 

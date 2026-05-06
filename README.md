@@ -52,6 +52,16 @@ cp .env.example .env
 # 查看状态
 ./scripts/watchdog.sh status
 
+# 查看所有 Claude 会话详情（模型、token、JSONL 年龄）
+./scripts/watchdog.sh sessions
+
+# 健康检查（进程存活 + 日志活跃度）
+./scripts/watchdog.sh health
+
+# 查看运行日志（默认最近 50 行）
+./scripts/watchdog.sh log
+./scripts/watchdog.sh log 100
+
 # 停止
 ./scripts/watchdog.sh stop
 

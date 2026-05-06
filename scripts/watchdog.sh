@@ -8,14 +8,17 @@
 
 set -euo pipefail
 
-# Load .env if present (for FEISHU_WEBHOOK / FEISHU_SECRET)
+# launchd 不加载 shell profile，需要手动补充 brew 路径
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# 加载 .env 配置（飞书 webhook 凭证），不配置则仅发 macOS 本地通知
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/../.env" ]; then
   # shellcheck disable=SC1090
   source "$SCRIPT_DIR/../.env"
 fi
 
-# ── Dependency check ────────────────────────────────────────────────────────
+# ── 前置依赖检查 ──────────────────────────────────────────────────────────
 if ! command -v tmux &>/dev/null; then
   echo "ERROR: tmux is required but not found in PATH." >&2
   echo "  Install: brew install tmux (macOS) or apt install tmux (Linux)" >&2
@@ -30,35 +33,56 @@ fi
 # ── Version ─────────────────────────────────────────────────────────────────
 VERSION="2.0.0"
 
-# ── Config ──────────────────────────────────────────────────────────────────
-# All persistent state goes under ~/.claude/ to keep things centralized.
-EVENTS_FILE="$HOME/.claude/session-events.jsonl"   # JSONL log of all stuck/recovered events
-PID_FILE="$HOME/.claude/watchdog.pid"                # daemon PID for stop/status
-LOCK_FILE="$HOME/.claude/watchdog.lock"              # prevents duplicate daemon instances
-LOG_FILE="$HOME/.claude/watchdog.log"                # runtime log with timestamps
-STATE_DIR="$HOME/.claude/watchdog-state"             # per-session state (hash, timestamps)
+# ── 配置参数 ────────────────────────────────────────────────────────────────
+# 所有持久化状态统一放在 ~/.claude/ 目录下
+EVENTS_FILE="$HOME/.claude/session-events.jsonl"   # stuck/recovered 事件日志（JSONL 格式）
+PID_FILE="$HOME/.claude/watchdog.pid"               # 守护进程 PID
+LOCK_FILE="$HOME/.claude/watchdog.lock"              # 进程锁（mkdir 原子操作实现）
+LOG_FILE="$HOME/.claude/watchdog.log"                # 运行日志
+STATE_DIR="$HOME/.claude/watchdog-state"             # 各 session 采样状态
 
-SAMPLE_INTERVAL=15         # seconds between samples
-STUCK_THRESHOLD=600        # seconds unchanged → stuck event + notification (10 min)
-INTERVENE_THRESHOLD=900    # seconds unchanged → auto Ctrl-C + continue (15 min)
-INTERVENE_COOLDOWN=600     # seconds after intervention before next one (10 min)
-DAILY_SUMMARY_HOUR=22      # hour to send daily summary (22:00)
-JSONL_STALE_THRESHOLD=600  # seconds since last JSONL record → consider stale (10 min)
+SAMPLE_INTERVAL=15         # 采样间隔（秒）
+STUCK_THRESHOLD=600        # 无变化判定卡住 → 通知（600s = 10 分钟）
+INTERVENE_THRESHOLD=900    # 无变化判定深度卡住 → 自动干预（900s = 15 分钟）
+INTERVENE_COOLDOWN=600     # 干预冷却期，防止频繁重试（600s = 10 分钟）
+DAILY_SUMMARY_HOUR=22      # 日报发送时间（22:00）
+JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值（600s = 10 分钟）
 
-# Feishu webhook notification (set via env or .env file)
+# 飞书机器人通知（通过 .env 或环境变量设置，不配置则仅发 macOS 通知）
 FEISHU_WEBHOOK="${FEISHU_WEBHOOK:-}"
 FEISHU_SECRET="${FEISHU_SECRET:-}"
 
-# ── Logging ─────────────────────────────────────────────────────────────────
-# Dual output: append to log file AND print to stdout (so launchd captures it).
+# 模型名称：从 tmux 状态栏实时提取，支持 MODEL_NAME 环境变量覆盖
+# 用法: MODEL_NAME=custom ./scripts/watchdog.sh run
+get_model_name() {
+  local session="${1:-}"
+  if [ -n "${MODEL_NAME:-}" ]; then
+    echo "$MODEL_NAME"
+    return
+  fi
+  if [ -n "$session" ]; then
+    local model
+    model=$(tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
+      | sed $'s/\xc2\xa0/ /g' \
+      | grep -oE '模型:[[:space:]]*[^ |]+' | head -1 | sed 's/模型:[[:space:]]*//' | tr -d '[:space:]' || true)
+    if [ -n "$model" ]; then
+      echo "$model"
+      return
+    fi
+  fi
+  echo "unknown"
+}
+
+# ── 日志输出 ─────────────────────────────────────────────────────────────────
+# 双路输出：同时写日志文件和 stdout（launchd 会捕获 stdout）
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-# ── State management ────────────────────────────────────────────────────────
-# Each session gets a flat file per key under STATE_DIR (e.g., gps.hash, gps.unchanged_since).
-# This avoids needing a database and is easy to debug with cat/rm.
+# ── 状态管理 ─────────────────────────────────────────────────────────────────
+# 每个 session 用 STATE_DIR 下的平铺文件存储状态（如 gps.hash, gps.unchanged_since）
+# 调试时直接 cat/rm 即可，不需要数据库
 init_state() {
   mkdir -p "$STATE_DIR"
 }
@@ -81,149 +105,65 @@ clear_state() {
   rm -f "$STATE_DIR/${session}."*
 }
 
-# ── Event logging ───────────────────────────────────────────────────────────
-# Appends a single JSON line per event. Fields match 04-monitoring-plan.md spec.
+# ── 事件记录 ─────────────────────────────────────────────────────────────────
+# 每个事件追加一行 JSON，字段定义见 04-monitoring-plan.md
 log_event() {
   local event="$1" session="$2" duration="$3" notes="${4:-}"
   local intervention="${5:-none}"
   mkdir -p "$(dirname "$EVENTS_FILE")"
-  # Determine recovered status: only "recovered" events have recovered=true
+  # 只有 recovered 事件设置 recovered=true
   local recovered_val="false"
   if [ "$event" = "recovered" ]; then
     recovered_val="true"
   fi
-  printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"GLM-5.1","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}\n' \
+  local model
+  model=$(get_model_name "$session")
+  printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$event" \
     "$session" \
     "$session" \
     "$duration" \
+    "$model" \
     "$intervention" \
     "$recovered_val" \
     "$notes" \
     >> "$EVENTS_FILE"
 }
 
-# ── Template engine ─────────────────────────────────────────────────────────
-# SCRIPT_DIR is already set at the top (line 12) for .env loading; reuse it here.
+# ── 通知模板引擎 ─────────────────────────────────────────────────────────────
+# 委托 scripts/notify.py 渲染模板 → HMAC 签名 → 发送飞书
+# 用法: notify_from_template "stuck" "session=gps" "duration=12" ...
 TEMPLATE_FILE="$SCRIPT_DIR/notify-templates.json"
 
-# Render template and send notification in one step (avoids bash parsing issues)
-# Usage: notify_from_template "stuck" "session=gps" "duration=12" ...
 notify_from_template() {
   local section="$1"
   shift
-  local vars=""
-  for arg in "$@"; do
-    vars="$vars\n$arg"
-  done
-
-  # Write vars to temp file to avoid escaping issues
-  local tmpvars
-  tmpvars=$(mktemp)
-  echo -e "$vars" > "$tmpvars"
-
-  python3 -c "
-import json, hmac, hashlib, base64, time, urllib.request, urllib.parse
-
-with open('$TEMPLATE_FILE', 'r') as f:
-    templates = json.load(f)
-tpl = templates.get('$section', {})
-title_tpl = tpl.get('title', '')
-color = tpl.get('color', 'blue')
-body_tpl = tpl.get('body', '')
-
-variables = {}
-with open('$tmpvars', 'r') as f:
-    for line in f:
-        line = line.strip()
-        if '=' in line:
-            k, v = line.split('=', 1)
-            variables[k.strip()] = v.strip()
-
-for k, v in variables.items():
-    title_tpl = title_tpl.replace('{' + k + '}', v)
-    body_tpl = body_tpl.replace('{' + k + '}', v)
-
-print(f'RENDERED: color={color} title={title_tpl}')
-
-webhook = '$FEISHU_WEBHOOK'
-secret = '$FEISHU_SECRET'
-if not webhook or not secret:
-    print('NOTIFY_SKIP: no feishu config')
-else:
-    ts = str(int(time.time()))
-    string_to_sign = f'{ts}\n{secret}'
-    sign = base64.b64encode(hmac.new(string_to_sign.encode('utf-8'), digestmod=hashlib.sha256).digest()).decode('utf-8')
-    url = f'{webhook}?timestamp={ts}&sign={urllib.parse.quote(sign)}'
-    payload = json.dumps({
-        'msg_type': 'interactive',
-        'card': {
-            'header': {'title': {'tag': 'plain_text', 'content': title_tpl}, 'template': color},
-            'elements': [{'tag': 'div', 'text': {'tag': 'lark_md', 'content': body_tpl}}]
-        }
-    })
-    req = urllib.request.Request(url, data=payload.encode('utf-8'), headers={'Content-Type': 'application/json'})
-    try:
-        resp = urllib.request.urlopen(req, timeout=10)
-        data = json.loads(resp.read().decode())
-        if data.get('code') == 0:
-            print(f'NOTIFY_OK: {title_tpl}')
-        else:
-            print(f'NOTIFY_FAIL: {data}')
-    except Exception as e:
-        print(f'NOTIFY_ERROR: {e}')
-" 2>&1 | while IFS= read -r line; do
-    log "$line"
-  done
-
-  rm -f "$tmpvars"
+  FEISHU_WEBHOOK="$FEISHU_WEBHOOK" FEISHU_SECRET="$FEISHU_SECRET" \
+    python3 "$SCRIPT_DIR/notify.py" "$TEMPLATE_FILE" "$section" "$@" \
+    2>&1 | while IFS= read -r line; do
+      log "$line"
+    done
 }
 
-# ── Session context helpers ─────────────────────────────────────────────────
-# Extract human-readable status from tmux pane for notification context.
-get_session_workdir() {
-  local session="$1"
-  tmux display-message -t "$session" -p '#{pane_current_path}' 2>/dev/null | sed "s|$HOME|~|" || echo "unknown"
-}
+# ── 会话上下文提取 ─────────────────────────────────────────────────────────
+# 从 tmux pane 中提取可读的状态信息，用于通知内容
 
-# Read the bottom 12 lines and filter for Claude Code status keywords.
+# 读取底部 12 行，过滤出 Claude Code 状态栏关键字
 get_session_status_line() {
   local session="$1"
-  python3 -c "
-import subprocess
-try:
-    result = subprocess.run(['tmux', 'capture-pane', '-t', '$session', '-p', '-S', '-12'],
-                            capture_output=True, text=True, timeout=5)
-    lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
-    status_keywords = ['模型:', '输入:', '会话:', '目录:', '⏵⏵', '────']
-    status = [l for l in lines if any(k in l for k in status_keywords)]
-    for l in status[-5:]:
-        print(l)
-except Exception:
-    pass
-" 2>/dev/null
+  tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
+    | grep -E '(模型:|输入:|会话:|目录:|⏵⏵|────)' \
+    | tail -5 || true
 }
 
-# Read the bottom 80 lines, strip status bar lines and idle prompts.
+# 读取底部 80 行，去除状态栏和空白行，返回最后 8 行有效输出
 get_session_last_lines() {
   local session="$1"
-  python3 -c "
-import subprocess
-try:
-    result = subprocess.run(['tmux', 'capture-pane', '-t', '$session', '-p', '-S', '-80'],
-                            capture_output=True, text=True, timeout=5)
-    lines = result.stdout.strip().split('\n')
-    status_keywords = ['模型:', '输入:', '会话:', '目录:', '────', '⏵⏵']
-    output = [l.rstrip() for l in lines
-              if l.strip()
-              and not any(k in l for k in status_keywords)
-              and l.strip() != '❯']
-    for l in output[-8:]:
-        print(l)
-except Exception:
-    pass
-" 2>/dev/null
+  tmux capture-pane -t "$session" -p -S -80 2>/dev/null \
+    | grep -v -E '(模型:|输入:|会话:|目录:|────|⏵⏵|^❯$|^[[:space:]]*$)' \
+    | sed 's/[[:space:]]*$//' \
+    | tail -8 || true
 }
 
 notify_stuck() {
@@ -277,7 +217,8 @@ notify_daemon_start() {
     "version=$VERSION"
 }
 
-# ── Daily summary ───────────────────────────────────────────────────────────
+# ── 日报统计 ─────────────────────────────────────────────────────────────────
+# 从 JSONL 事件文件中聚合当日和累计数据，发送飞书卡片通知
 send_daily_summary() {
   local today total total_stuck total_interrupt total_recovered avg_dur
   today=$(date '+%Y-%m-%d')
@@ -294,17 +235,14 @@ send_daily_summary() {
 
   local avg_min="0"
   if [ "$today_stuck" -gt 0 ]; then
-    avg_min=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep '"event":"stuck"' | python3 -c "
-import sys, json
-durations = [json.loads(l).get('duration_minutes', 0) for l in sys.stdin if l.strip()]
-print(f'{sum(durations)/len(durations):.0f}' if durations else '0')
-" 2>/dev/null || echo 0)
+    avg_min=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep '"event":"stuck"' \
+      | grep -oE '"duration_minutes":[0-9]+' | cut -d: -f2 \
+      | awk '{s+=$1; n++} END {if(n>0) printf "%d", s/n; else print 0}')
   fi
 
   local active_count
   active_count=$(get_claude_sessions | wc -l | tr -d ' ')
 
-  local rendered
   notify_from_template "daily" \
     "date=$today" "today_events=$today_events" \
     "today_stuck=$today_stuck" "today_interrupt=$today_interrupt" \
@@ -316,8 +254,8 @@ print(f'{sum(durations)/len(durations):.0f}' if durations else '0')
   log "DAILY SUMMARY sent: today=${today_events} events, total=${total} events"
 }
 
-# ── Detect claude sessions ──────────────────────────────────────────────────
-# Find tmux sessions whose child process is claude-yes/agent-yes/claude.
+# ── 发现 Claude 会话 ────────────────────────────────────────────────────────
+# 遍历 tmux sessions，找到子进程为 claude-yes/agent-yes/claude 的会话
 get_claude_sessions() {
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null); do
     local pane_pid
@@ -328,9 +266,9 @@ get_claude_sessions() {
   done
 }
 
-# ── Capture pane hash (strips timer patterns to avoid false negatives) ──────
-# Timer spinners (e.g. "2m 15s") and timestamps would cause hash to change
-# even when the session is genuinely stuck. We normalize these before hashing.
+# ── 屏幕 hash 计算（去除计时器干扰） ─────────────────────────────────────
+# 计时器（如 "2m 15s"）和时间戳会导致 hash 持续变化，产生误判。
+# 先用 sed 将这些模式归一化为固定字符串，再计算 md5。
 get_pane_hash() {
   local session="$1"
   tmux capture-pane -t "$session" -p -S -50 2>/dev/null \
@@ -339,117 +277,28 @@ get_pane_hash() {
     | md5 2>/dev/null || echo ""
 }
 
-# ── JSONL last record age (seconds) ────────────────────────────────────────
-# Returns age in seconds since the last JSONL entry, or empty on failure.
-# Maps: tmux session → pane working dir → ~/.claude/projects/<encoded-path>/*.jsonl
-# All errors are silently swallowed — this is a best-effort signal.
+# ── JSONL 最后记录时间（秒） ──────────────────────────────────────────────
+# 返回 JSONL 日志最后一条记录距今的秒数，失败时返回空
+# 委托 scripts/jsonl_age.py 处理
 get_jsonl_age_seconds() {
   local session="$1"
-  python3 -c "
-import json, os, time, glob, sys
-
-try:
-    # Map tmux session → working directory → project dir
-    import subprocess
-    result = subprocess.run(
-        ['tmux', 'display-message', '-t', '$session', '-p', '#{pane_current_path}'],
-        capture_output=True, text=True, timeout=5
-    )
-    if result.returncode != 0:
-        sys.exit(0)
-    workdir = result.stdout.strip()
-    if not workdir:
-        sys.exit(0)
-
-    # Encode path: strip HOME prefix, replace all non-alnum with dashes, collapse
-    home = os.path.expanduser('~')
-    rel = workdir.replace(home + '/', '').replace(home, '')
-    import re
-    encoded = re.sub(r'[^a-zA-Z0-9]+', '-', rel).strip('-')
-    import platform
-    user = os.environ.get('USER', '')
-    project_dir = os.path.join(home, '.claude', 'projects', f'-{user.replace(os.sep, "-")}-{encoded}')
-    # Fallback: try listing projects dir and match by encoded suffix
-    if not os.path.isdir(project_dir):
-        proj_base = os.path.join(home, '.claude', 'projects')
-        if os.path.isdir(proj_base):
-            for d in os.listdir(proj_base):
-                if d.endswith('-' + encoded) or d.endswith(encoded):
-                    candidate = os.path.join(proj_base, d)
-                    if os.path.isdir(candidate):
-                        project_dir = candidate
-                        break
-
-    if not os.path.isdir(project_dir):
-        sys.exit(0)
-
-    # Find most recently modified .jsonl (not in subagents/)
-    jsonl_files = [
-        f for f in glob.glob(os.path.join(project_dir, '*.jsonl'))
-        if '/subagents/' not in f
-    ]
-    if not jsonl_files:
-        sys.exit(0)
-
-    active = max(jsonl_files, key=os.path.getmtime)
-
-    # Read last non-empty line
-    with open(active, 'rb') as fh:
-        fh.seek(0, 2)
-        size = fh.tell()
-        if size == 0:
-            sys.exit(0)
-        # Read last 2KB (enough for one JSON line)
-        fh.seek(max(0, size - 2048))
-        tail = fh.read().decode('utf-8', errors='replace').strip()
-
-    lines = [l for l in tail.split('\n') if l.strip()]
-    if not lines:
-        sys.exit(0)
-
-    last = json.loads(lines[-1])
-    ts_str = last.get('timestamp', '')
-    if not ts_str:
-        sys.exit(0)
-
-    # Parse ISO timestamp
-    from datetime import datetime, timezone
-    ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
-    age = (datetime.now(timezone.utc) - ts).total_seconds()
-    if age < 0:
-        age = 0
-    print(int(age))
-except (json.JSONDecodeError, KeyError, ValueError, OSError, subprocess.TimeoutExpired):
-    pass
-" 2>/dev/null
+  python3 "$SCRIPT_DIR/jsonl_age.py" "$session" 2>/dev/null
 }
 
-# ── Output token count from status line ────────────────────────────────────
-# Extracts the numeric value of the 输出: field (e.g. "228.9k" → "228.9k").
-# Used for stagnation detection: if output tokens don't change, the model
-# isn't producing new content even if the screen hash is changing (timer).
+# ── 输出 token 数提取 ─────────────────────────────────────────────────────
+# 从状态栏提取 "输出:" 字段的数值（如 "228.9k"）。
+# 用于停滞检测：如果输出 token 不变，说明模型没有产出新内容（即使屏幕在变化）。
 get_output_tokens() {
   local session="$1"
-  python3 -c "
-import subprocess, re, sys
-try:
-    result = subprocess.run(
-        ['tmux', 'capture-pane', '-t', '$session', '-p', '-S', '-8'],
-        capture_output=True, text=True, timeout=5
-    )
-    for line in result.stdout.split('\n'):
-        m = re.search(r'输出:\s*([0-9.]+[km]?)', line)
-        if m:
-            print(m.group(1))
-            break
-except Exception:
-    pass
-" 2>/dev/null
+  tmux capture-pane -t "$session" -p -S -8 2>/dev/null \
+    | grep -oE '输出:[[:space:]]*[0-9.]+[kKmM]?' \
+    | grep -oE '[0-9.]+[kKmM]?' \
+    | head -1 || true
 }
 
-# ── Check if session is idle ───────────────────────────────────────────────
-# Idle sessions (at the ❯ prompt) should not trigger stuck detection.
-# We check for known idle indicators in the last few lines of the pane.
+# ── 空闲判定 ───────────────────────────────────────────────────────────────
+# 处于 ❯ 提示符等空闲状态的 session 不应触发卡住检测
+# 匹配模式：❯ 提示符、权限确认、超时标记、取消提示等
 is_idle_prompt() {
   local session="$1"
   local last_lines
@@ -465,10 +314,9 @@ is_idle_prompt() {
   return 1
 }
 
-# ── Intervene: Ctrl-C + continue ───────────────────────────────────────────
-# The core auto-recovery logic. Sends Escape then Ctrl-C to break any pending
-# API request, waits for the prompt to return, then sends a continuation message.
-# This mirrors what a human would do manually — no process killing.
+# ── 自动干预：Ctrl-C + 继续任务 ──────────────────────────────────────────
+# 模拟人工操作：先发 Escape + Ctrl-C 打断挂起的 API 请求，
+# 等待提示符出现后发送继续消息。不杀进程，与手动操作完全一致。
 intervene() {
   local session="$1" duration="$2"
   log "INTERVENE: $session stuck ${duration}s, sending Ctrl-C + continue"
@@ -489,17 +337,16 @@ intervene() {
   set_state "$session" "unchanged_since" ""
 }
 
-# ── Main monitoring loop (v2: hash + JSONL + token stagnation) ──────────────
-# Three-signal combined detection:
-#   Path A: screen hash unchanged → classic stuck detection
-#   Path B: hash changing BUT JSONL stale AND tokens stagnant → "deep stuck"
-#           (e.g. timer spinner updating the screen while API is hung)
+# ── 主检测循环（v2：hash + JSONL + token 三路联合检测）──────────────────────
+# 路径 A：屏幕 hash 不变 → 经典卡住检测
+# 路径 B：hash 在变但 JSONL 停滞且 token 不变 → "深度卡住"
+#         （如计时器在转圈更新屏幕，但 API 实际已挂起）
 do_check() {
   init_state
   local now
   now=$(date +%s)
 
-  # Daily summary at configured hour
+  # 在配置时间发送日报（每天只发一次）
   local current_hour
   current_hour=$(date '+%H')
   local last_summary
@@ -520,7 +367,7 @@ do_check() {
   fi
 
   for session in $sessions; do
-    # ── Idle sessions: clear state, handle recovery ──
+    # ── 空闲 session：清除状态，处理恢复检测 ──
     if is_idle_prompt "$session"; then
       local was_stuck
       was_stuck=$(get_state "$session" "stuck_notified")
@@ -538,7 +385,7 @@ do_check() {
       continue
     fi
 
-    # ── Signal 1: Hash-based detection (timer-stripped) ──
+    # ── 信号 1：屏幕 hash 检测（已去除计时器干扰） ──
     local current_hash
     current_hash=$(get_pane_hash "$session")
     if [ -z "$current_hash" ]; then
@@ -553,7 +400,7 @@ do_check() {
       hash_unchanged="1"
     fi
 
-    # ── Signal 2: JSONL last record age ──
+    # ── 信号 2：JSONL 日志最后记录时间 ──
     local jsonl_age=""
     jsonl_age=$(get_jsonl_age_seconds "$session")
     local jsonl_stale="0"
@@ -561,7 +408,7 @@ do_check() {
       jsonl_stale="1"
     fi
 
-    # ── Signal 3: Output token stagnation ──
+    # ── 信号 3：输出 token 停滞检测 ──
     local current_tokens=""
     current_tokens=$(get_output_tokens "$session")
     local prev_tokens
@@ -574,9 +421,9 @@ do_check() {
       set_state "$session" "output_tokens" "$current_tokens"
     fi
 
-    # ── Combined stuck detection ──
-    # Path A: hash unchanged (classic detection)
-    # Path B: hash changing BUT JSONL stale AND tokens stagnant (timer spinner)
+    # ── 联合卡住判定 ──
+    # 路径 A：hash 不变（经典检测）
+    # 路径 B：hash 在变但 JSONL 停滞 + token 不变（计时器干扰场景）
     local is_stuck="0"
     if [ "$hash_unchanged" = "1" ]; then
       is_stuck="1"
@@ -589,7 +436,7 @@ do_check() {
       local unchanged_since
       unchanged_since=$(get_state "$session" "unchanged_since")
       if [ -z "$unchanged_since" ]; then
-        # For deep-stuck, use JSONL age as a more accurate start time
+        # 深度卡住时用 JSONL 年龄作为更准确的起始时间
         if [ "$hash_unchanged" = "0" ] && [ -n "$jsonl_age" ]; then
           unchanged_since=$((now - jsonl_age))
         else
@@ -623,7 +470,7 @@ do_check() {
         fi
       fi
     else
-      # ── Not stuck: handle recovery + reset state ──
+      # ── 未卡住：处理恢复事件 + 重置状态 ──
       local was_stuck
       was_stuck=$(get_state "$session" "stuck_notified")
       if [ "$was_stuck" = "1" ]; then
@@ -643,11 +490,12 @@ do_check() {
   done
 }
 
-# ── Daemon control ──────────────────────────────────────────────────────────
-# start_daemon spawns a background loop; stop_daemon kills it.
-# A Python-based file lock prevents duplicate instances (macOS lacks flock(1)).
+# ── 守护进程控制 ──────────────────────────────────────────────────────────
+# start_daemon：后台启动监控循环
+# stop_daemon：停止进程
+# mkdir 锁防止重复启动（跨平台原子操作）
 start_daemon() {
-  # Check for existing instance via PID file
+  # 检查是否已有实例运行
   if [ -f "$PID_FILE" ]; then
     local old_pid
     old_pid=$(cat "$PID_FILE")
@@ -659,22 +507,10 @@ start_daemon() {
     rm -f "$PID_FILE"
   fi
 
-  # File lock via Python (macOS has no flock)
-  local lock_result
-  lock_result=$(python3 -c "
-import fcntl, sys
-try:
-    f = open('$LOCK_FILE', 'w')
-    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    f.write(str(0))
-    f.flush()
-    print('ok')
-except (IOError, OSError):
-    print('locked')
-" 2>/dev/null)
-  if [ "$lock_result" != "ok" ]; then
+  # 原子锁：mkdir 成功则获得锁，失败则说明已有实例
+  if ! mkdir "$LOCK_FILE" 2>/dev/null; then
     echo "Another watchdog instance is running (lock: $LOCK_FILE)"
-    echo "If stale, remove it: rm $LOCK_FILE"
+    echo "If stale, remove it: rm -rf $LOCK_FILE"
     return 1
   fi
 
@@ -699,14 +535,14 @@ except (IOError, OSError):
 
 stop_daemon() {
   if [ ! -f "$PID_FILE" ]; then
-    echo "Watchdog not running"
+    echo "Watchdog not running (no PID file)"
     return 0
   fi
   local pid
   pid=$(cat "$PID_FILE")
   if kill -0 "$pid" 2>/dev/null; then
     kill "$pid"
-    # Wait for process to exit and release lock
+    # Wait for process to exit
     local wait=0
     while kill -0 "$pid" 2>/dev/null && [ $wait -lt 10 ]; do
       sleep 0.5
@@ -714,11 +550,15 @@ stop_daemon() {
     done
     log "Watchdog stopped (pid $pid)"
     echo "Watchdog stopped"
+    # 提醒 launchd KeepAlive 会自动重启
+    if launchctl list | grep -q 'com.claude.watchdog' 2>/dev/null; then
+      echo "Note: launchd KeepAlive will restart this. To disable: launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist"
+    fi
   else
     echo "Watchdog process not found (stale pid $pid)"
   fi
   rm -f "$PID_FILE"
-  rm -f "$LOCK_FILE"
+  rm -rf "$LOCK_FILE"
 }
 
 show_status() {
@@ -762,10 +602,12 @@ show_status() {
   echo "Log file: $LOG_FILE"
 }
 
-# ── Foreground loop (for launchd) ──────────────────────────────────────────
-# launchd expects the process to stay in foreground; this is the daemon entry point.
+# ── 前台循环模式（供 launchd 使用）──────────────────────────────────────
+# launchd 要求进程保持前台运行，这是守护入口点
+# 写入 PID 文件以便 status 命令正确识别
 run_foreground() {
-  log "Watchdog starting in foreground mode (for launchd)"
+  echo $$ > "$PID_FILE"
+  log "Watchdog starting in foreground mode (for launchd, pid $$)"
   init_state
   while true; do
     do_check
@@ -773,7 +615,7 @@ run_foreground() {
   done
 }
 
-# ── Test notification ───────────────────────────────────────────────────────
+# ── 测试通知（发送 5 种类型的样例通知）────────────────────────────────────
 test_notify() {
   echo "Sending test notifications (5 types)..."
   notify_stuck "test-session" "12"
@@ -797,7 +639,104 @@ test_notify() {
   echo "Done."
 }
 
-# ── Entry point ─────────────────────────────────────────────────────────────
+# ── 查看日志（最近 N 行）────────────────────────────────────────────────────
+show_log() {
+  local lines="${2:-50}"
+  if [ ! -f "$LOG_FILE" ]; then
+    echo "No log file: $LOG_FILE"
+    return
+  fi
+  tail -"$lines" "$LOG_FILE"
+}
+
+# ── 列出所有 Claude 会话详情 ──────────────────────────────────────────────
+show_sessions() {
+  local sessions
+  sessions=$(get_claude_sessions)
+  if [ -z "$sessions" ]; then
+    echo "No claude sessions found in tmux"
+    return
+  fi
+  echo "=== Claude Code Sessions ==="
+  for session in $sessions; do
+    local model tokens jsonl_age idle
+    model=$(get_model_name "$session")
+    tokens=$(get_output_tokens "$session")
+    jsonl_age=$(get_jsonl_age_seconds "$session")
+    if is_idle_prompt "$session" 2>/dev/null; then
+      idle="idle"
+    else
+      idle="active"
+    fi
+    echo ""
+    echo "  Session: $session"
+    echo "  Model:   ${model:-unknown}"
+    echo "  Tokens:  ${tokens:-N/A}"
+    echo "  JSONL:   ${jsonl_age:-N/A}${jsonl_age:+s} since last record"
+    echo "  State:   $idle"
+    # Show stuck status if tracked
+    local unchanged notified
+    unchanged=$(get_state "$session" "unchanged_since")
+    notified=$(get_state "$session" "stuck_notified")
+    if [ -n "$unchanged" ]; then
+      local now stuck_dur
+      now=$(date +%s)
+      stuck_dur=$((now - unchanged))
+      echo "  Stuck:   ${stuck_dur}s ($((stuck_dur / 60))min)${notified:+ [NOTIFIED]}"
+    fi
+  done
+}
+
+# ── 健康检查（验证 daemon 存活 + 最近有日志输出）───────────────────────────
+health_check() {
+  local healthy="true"
+
+  # 检查进程存活
+  if [ -f "$PID_FILE" ]; then
+    local pid
+    pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Process: ALIVE (pid $pid)"
+    else
+      echo "Process: DEAD (stale pid $pid)"
+      healthy="false"
+    fi
+  else
+    echo "Process: NOT RUNNING (no PID file)"
+    healthy="false"
+  fi
+
+  # 检查日志是否在更新
+  if [ -f "$LOG_FILE" ]; then
+    local log_age
+    log_age=$(( $(date +%s) - $(stat -f %m "$LOG_FILE" 2>/dev/null || echo 0) ))
+    if [ "$log_age" -lt 300 ] 2>/dev/null; then
+      echo "Log:     FRESH (${log_age}s ago)"
+    else
+      echo "Log:     STALE (${log_age}s ago)"
+      healthy="false"
+    fi
+  else
+    echo "Log:     MISSING"
+    healthy="false"
+  fi
+
+  # 检查 session 数量
+  local count
+  count=$(get_claude_sessions | wc -l | tr -d ' ')
+  echo "Sessions: $count tracked"
+
+  if [ "$healthy" = "true" ]; then
+    echo ""
+    echo "Status: HEALTHY"
+  else
+    echo ""
+    echo "Status: UNHEALTHY"
+    return 1
+  fi
+}
+
+# ── 入口 ────────────────────────────────────────────────────────────────────
 case "${1:-run}" in
   start)          start_daemon ;;
   stop)           stop_daemon ;;
@@ -806,8 +745,11 @@ case "${1:-run}" in
   daemon)         run_foreground ;;
   test-notify)    test_notify ;;
   daily-summary)  send_daily_summary ;;
+  log)            show_log "$@" ;;
+  sessions)       show_sessions ;;
+  health)         health_check ;;
   *)
-    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary}"
+    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary|log|sessions|health}"
     exit 1
     ;;
 esac

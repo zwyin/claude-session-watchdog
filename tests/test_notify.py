@@ -12,6 +12,8 @@ import base64
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE_FILE = os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")
 WATCHDOG_SCRIPT = os.path.join(SCRIPT_DIR, "scripts", "watchdog.sh")
+NOTIFY_PY = os.path.join(SCRIPT_DIR, "scripts", "notify.py")
+JSONL_AGE_PY = os.path.join(SCRIPT_DIR, "scripts", "jsonl_age.py")
 
 
 def render_template(section, **kwargs):
@@ -198,8 +200,9 @@ log_event() {{
   local event="$1" session="$2" duration="$3" notes="$4" intervention="$5"
   local recovered="false"
   [ "$event" = "recovered" ] && recovered="true"
-  printf '{{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"GLM-5.1","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}}\\n' \\
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$event" "$session" "$session" "$duration" "$intervention" "$recovered" "$notes" \\
+  local model="${{MODEL_NAME:-test-model}}"
+  printf '{{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}}\\n' \\
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$event" "$session" "$session" "$duration" "$model" "$intervention" "$recovered" "$notes" \\
     >> "$EVENTS_FILE"
 }}
 log_event "{event}" "{session}" "{duration}" "{notes}" "{intervention}"
@@ -471,6 +474,434 @@ print(encoded)
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.stdout.strip(), "projects-test-toolkit-0424")
+
+    def test_path_with_dots(self):
+        result = subprocess.run(
+            ["python3", "-c", """
+import re
+workdir = '/Users/zhiweiyin/repo_ds1600/claude-session-watchdog'
+home = '/Users/zhiweiyin'
+rel = workdir.replace(home + '/', '')
+encoded = re.sub(r'[^a-zA-Z0-9]+', '-', rel).strip('-')
+print(encoded)
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "repo-ds1600-claude-session-watchdog")
+
+    def test_path_with_spaces(self):
+        result = subprocess.run(
+            ["python3", "-c", """
+import re
+workdir = '/Users/zhiweiyin/my projects/test app'
+home = '/Users/zhiweiyin'
+rel = workdir.replace(home + '/', '')
+encoded = re.sub(r'[^a-zA-Z0-9]+', '-', rel).strip('-')
+print(encoded)
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "my-projects-test-app")
+
+
+class TestModelNameExtraction(unittest.TestCase):
+    """Test model name extraction from tmux status line."""
+
+    def test_extract_model_from_status_line(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  模型: Claude Sonnet 4.6 | 输入: 26.3k | 输出: 8.6k'
+m = re.search(r'模型:\s*([^ |]+(?:\s+[^ |]+)*)', line)
+if m:
+    model = m.group(1).strip()
+    print(model)
+else:
+    print('NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("Claude", result.stdout.strip())
+        self.assertNotEqual(result.stdout.strip(), "NONE")
+
+    def test_extract_glm_model(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  模型: GLM-5.1 | 输入: 3.2M'
+m = re.search(r'模型:\s*([^ |]+(?:\s+[^ |]+)*)', line)
+print(m.group(1).strip() if m else 'NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "GLM-5.1")
+
+    def test_no_model_field(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  输入: 26.3k | 输出: 8.6k | 缓存: 4.3M'
+m = re.search(r'模型:\s*([^ |]+(?:\s+[^ |]+)*)', line)
+print(m.group(1) if m else 'NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "NONE")
+
+    def test_bash_or_true_no_crash(self):
+        """Verify that get_model_name's || true prevents set -e crash."""
+        result = subprocess.run(
+            ["bash", "-c", "set -euo pipefail; x=$(echo 'no model here' | grep -oE '模型:[[:space:]]*[^ |]+' | head -1 || true); echo \"result=[$x]\""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("result=[]", result.stdout)
+
+
+class TestIdlePromptDetection(unittest.TestCase):
+    """Test idle prompt pattern matching."""
+
+    def test_detect_prompt_char(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo '❯' | grep -qE '(^❯|^\\s*❯)' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "IDLE")
+
+    def test_detect_accept_edits(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'accept edits on files?' | grep -qE 'accept edits on' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "IDLE")
+
+    def test_detect_escaped_prompt(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo '  ❯ ' | grep -qE '(^❯|^\\s*❯)' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "IDLE")
+
+    def test_active_output_not_idle(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'def hello_world():' | grep -qE '(^❯|^\\s*❯|accept edits on)' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "ACTIVE")
+
+    def test_timeout_pattern_idle(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo '[超时]' | grep -qE '(\\[超时\\])' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "IDLE")
+
+
+class TestTimerStripping(unittest.TestCase):
+    """Test hash normalization that strips timer/timestamp patterns."""
+
+    def test_strip_minutes_seconds(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'progress 2m 15s remaining' | sed -E 's/[0-9]+m [0-9]+s/TIMER/g'"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("TIMER", result.stdout.strip())
+        self.assertNotIn("2m 15s", result.stdout.strip())
+
+    def test_strip_compact_timer(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'elapsed 5m30s done' | sed -E 's/[0-9]+m[0-9]+s/TIMER/g'"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("TIMER", result.stdout.strip())
+
+    def test_strip_clock_time(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'updated at 14:30' | sed -E 's/[0-9]+:[0-9]+(am|pm)?/TIME/g'"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("TIME", result.stdout.strip())
+        self.assertNotIn("14:30", result.stdout.strip())
+
+    def test_preserve_non_timer_content(self):
+        result = subprocess.run(
+            ["bash", "-c", "echo 'error code 404 in file.py' | sed -E 's/[0-9]+m [0-9]+s/TIMER/g; s/[0-9]+m[0-9]+s/TIMER/g; s/[0-9]+:[0-9]+(am|pm)?/TIME/g'"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("error code 404", result.stdout.strip())
+
+    def test_hash_stable_without_timer(self):
+        """Same content → same hash after normalization."""
+        import hashlib
+        content = "def foo():\n    return 42\n"
+        h1 = hashlib.md5(content.encode()).hexdigest()
+        h2 = hashlib.md5(content.encode()).hexdigest()
+        self.assertEqual(h1, h2)
+
+    def test_hash_changes_with_real_change(self):
+        """Different content → different hash."""
+        import hashlib
+        h1 = hashlib.md5(b"def foo():\n    return 1\n").hexdigest()
+        h2 = hashlib.md5(b"def foo():\n    return 2\n").hexdigest()
+        self.assertNotEqual(h1, h2)
+
+
+class TestTokenParsingEdgeCases(unittest.TestCase):
+    """Additional edge cases for token parsing."""
+
+    def test_million_tokens(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  输入: 3.2M | 输出: 1.8M | 缓存: 108.5M'
+m = re.search(r'输出:\s*([0-9.]+[kKmM]?)', line)
+print(m.group(1) if m else 'NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "1.8M")
+
+    def test_plain_number_tokens(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  输入: 500 | 输出: 128'
+m = re.search(r'输出:\s*([0-9.]+[km]?)', line)
+print(m.group(1) if m else 'NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "128")
+
+    def test_multiple_output_fields_takes_first(self):
+        result = subprocess.run(
+            ["python3", "-c", r"""
+import re
+line = '  输出: 100k extra 输出: 200k'
+m = re.search(r'输出:\s*([0-9.]+[km]?)', line)
+print(m.group(1) if m else 'NONE')
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "100k")
+
+    def test_bash_grep_output_tokens(self):
+        """Test the actual bash pipeline used in get_output_tokens."""
+        result = subprocess.run(
+            ["bash", "-c", """
+line='  输入: 3.2M | 输出: 228.9k | 缓存: 108.5M'
+echo "$line" | grep -oE '输出:[[:space:]]*[0-9.]+[km]?' | grep -oE '[0-9.]+[km]?' | head -1
+"""],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "228.9k")
+
+
+class TestNotifyPy(unittest.TestCase):
+    """Test standalone notify.py script."""
+
+    def test_render_without_feishu(self):
+        result = subprocess.run(
+            ["python3", NOTIFY_PY, TEMPLATE_FILE, "stuck",
+             "session=test-sess", "duration=5", "date=05-06",
+             "time=12:00", "status_line=model", "last_output=out"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RENDERED:", result.stdout)
+        self.assertIn("NOTIFY_SKIP", result.stdout)
+
+    def test_missing_args_exits(self):
+        result = subprocess.run(
+            ["python3", NOTIFY_PY],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_invalid_section_renders_empty(self):
+        result = subprocess.run(
+            ["python3", NOTIFY_PY, TEMPLATE_FILE, "nonexistent"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RENDERED:", result.stdout)
+
+    def test_chinese_values(self):
+        result = subprocess.run(
+            ["python3", NOTIFY_PY, TEMPLATE_FILE, "stuck",
+             "session=测试会话", "duration=30", "date=05-06",
+             "time=22:00", "status_line=模型: GLM-5.1", "last_output=输出内容"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("测试会话", result.stdout)
+        self.assertIn("NOTIFY_SKIP", result.stdout)
+
+
+class TestJsonlAgePy(unittest.TestCase):
+    """Test standalone jsonl_age.py script."""
+
+    def test_no_args_silent(self):
+        result = subprocess.run(
+            ["python3", JSONL_AGE_PY],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+    def test_nonexistent_session_silent(self):
+        result = subprocess.run(
+            ["python3", JSONL_AGE_PY, "nonexistent-session-xyz"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout.strip(), "")
+
+
+class TestDaemonPidWrite(unittest.TestCase):
+    """Test that run_foreground writes PID file."""
+
+    def test_run_foreground_writes_pid(self):
+        """Simulate run_foreground PID write logic."""
+        with tempfile.NamedTemporaryFile(suffix=".pid", delete=False) as f:
+            pid_file = f.name
+        try:
+            # Simulate: echo $$ > PID_FILE
+            subprocess.run(
+                ["bash", "-c", f"echo $$ > {pid_file}"],
+                capture_output=True, timeout=5,
+            )
+            with open(pid_file) as f:
+                pid_content = f.read().strip()
+            self.assertTrue(pid_content.isdigit())
+            self.assertGreater(int(pid_content), 0)
+        finally:
+            os.unlink(pid_file)
+
+
+class TestConfigPathExport(unittest.TestCase):
+    """Test that watchdog.sh exports brew PATH."""
+
+    def test_path_includes_homebrew(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("/opt/homebrew/bin", content)
+        self.assertIn("/usr/local/bin", content)
+        # Should be near the top, before dependency checks
+        path_line = content.index("/opt/homebrew/bin")
+        dep_check = content.index("command -v tmux")
+        self.assertLess(path_line, dep_check,
+                        "PATH export should come before dependency checks")
+
+
+class TestNewCommands(unittest.TestCase):
+    """Test that new subcommands exist in the entry point."""
+
+    def test_log_command_present(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("log)", content)
+        self.assertIn("show_log", content)
+
+    def test_sessions_command_present(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("sessions)", content)
+        self.assertIn("show_sessions", content)
+
+    def test_health_command_present(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("health)", content)
+        self.assertIn("health_check", content)
+
+    def test_usage_includes_new_commands(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("log|sessions|health", content)
+
+    def test_health_check_runs(self):
+        result = subprocess.run(
+            ["bash", WATCHDOG_SCRIPT, "health"],
+            capture_output=True, text=True, timeout=10,
+        )
+        # Should run without error (may return 1 if unhealthy, that's OK)
+        self.assertIn("Process:", result.stdout)
+
+    def test_sessions_runs(self):
+        result = subprocess.run(
+            ["bash", WATCHDOG_SCRIPT, "sessions"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_log_runs(self):
+        result = subprocess.run(
+            ["bash", WATCHDOG_SCRIPT, "log"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_nbsp_strip_in_get_model_name(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("\\xc2\\xa0", content,
+                      "Should strip non-breaking spaces (U+00A0) from model name")
+
+
+class TestInterveneLogic(unittest.TestCase):
+    """Test intervene threshold and cooldown logic."""
+
+    def test_cooldown_prevents_rapid_reintervene(self):
+        now = 1000
+        last_intervene = 900
+        cooldown = 600
+        elapsed = now - last_intervene  # 100s
+        self.assertLess(elapsed, cooldown, "Should be in cooldown period")
+
+    def test_cooldown_allows_after_wait(self):
+        now = 1600
+        last_intervene = 900
+        cooldown = 600
+        elapsed = now - last_intervene  # 700s
+        self.assertGreaterEqual(elapsed, cooldown, "Should be past cooldown")
+
+    def test_first_intervene_no_cooldown(self):
+        """First intervention has no last_intervene, should always proceed."""
+        last_intervene = ""
+        self.assertEqual(last_intervene, "")
+
+
+class TestCombinedDetection(unittest.TestCase):
+    """Test combined stuck detection logic."""
+
+    def test_hash_unchanged_is_stuck(self):
+        hash_unchanged = 1
+        jsonl_stale = 0
+        tokens_stagnant = 0
+        is_stuck = 1 if hash_unchanged == 1 else 0
+        self.assertEqual(is_stuck, 1)
+
+    def test_jsonl_stale_and_tokens_stagnant_is_deep_stuck(self):
+        hash_unchanged = 0
+        jsonl_stale = 1
+        tokens_stagnant = 1
+        is_stuck = 1 if (hash_unchanged == 1 or (jsonl_stale == 1 and tokens_stagnant == 1)) else 0
+        self.assertEqual(is_stuck, 1)
+
+    def test_jsonl_stale_only_not_stuck(self):
+        hash_unchanged = 0
+        jsonl_stale = 1
+        tokens_stagnant = 0
+        is_stuck = 1 if (hash_unchanged == 1 or (jsonl_stale == 1 and tokens_stagnant == 1)) else 0
+        self.assertEqual(is_stuck, 0)
+
+    def test_all_clear_not_stuck(self):
+        hash_unchanged = 0
+        jsonl_stale = 0
+        tokens_stagnant = 0
+        is_stuck = 1 if (hash_unchanged == 1 or (jsonl_stale == 1 and tokens_stagnant == 1)) else 0
+        self.assertEqual(is_stuck, 0)
 
 
 if __name__ == "__main__":

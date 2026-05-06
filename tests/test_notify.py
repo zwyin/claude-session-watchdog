@@ -167,8 +167,7 @@ class TestFeishuSignature(unittest.TestCase):
         secret = "test_secret"
         string_to_sign = f"{ts}\n{secret}"
         sign = base64.b64encode(
-            hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"),
-                     digestmod=hashlib.sha256).digest()
+            hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
         ).decode("utf-8")
         base64.b64decode(sign)  # Valid base64
         self.assertTrue(len(sign) > 0)
@@ -177,8 +176,7 @@ class TestFeishuSignature(unittest.TestCase):
         def calc(ts):
             sts = f"{ts}\ntest"
             return base64.b64encode(
-                hmac.new("test".encode("utf-8"), sts.encode("utf-8"),
-                         digestmod=hashlib.sha256).digest()
+                hmac.new(sts.encode("utf-8"), digestmod=hashlib.sha256).digest()
             ).decode("utf-8")
         self.assertNotEqual(calc("1000"), calc("2000"))
 
@@ -186,8 +184,7 @@ class TestFeishuSignature(unittest.TestCase):
         def calc(ts, secret):
             sts = f"{ts}\n{secret}"
             return base64.b64encode(
-                hmac.new(secret.encode("utf-8"), sts.encode("utf-8"),
-                         digestmod=hashlib.sha256).digest()
+                hmac.new(sts.encode("utf-8"), digestmod=hashlib.sha256).digest()
             ).decode("utf-8")
         self.assertEqual(calc("1000", "s"), calc("1000", "s"))
 

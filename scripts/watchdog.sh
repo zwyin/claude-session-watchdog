@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code tmux session watchdog v2.0.1
+# Claude Code tmux session watchdog v2.0.2
 # Monitors all tmux sessions running claude-yes/claude, detects stuck sessions,
 # logs events, sends notifications, and auto-intervenes.
 #
@@ -31,7 +31,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # ── Version ─────────────────────────────────────────────────────────────────
-VERSION="2.0.1"
+VERSION="2.0.2"
 
 # ── 配置参数 ────────────────────────────────────────────────────────────────
 # 所有持久化状态统一放在 ~/.claude/ 目录下
@@ -45,7 +45,8 @@ SAMPLE_INTERVAL=15         # 采样间隔（秒）
 STUCK_THRESHOLD=600        # 无变化判定卡住 → 通知（600s = 10 分钟）
 INTERVENE_THRESHOLD=900    # 无变化判定深度卡住 → 自动干预（900s = 15 分钟）
 INTERVENE_COOLDOWN=600     # 干预冷却期，防止频繁重试（600s = 10 分钟）
-DAILY_SUMMARY_HOUR=22      # 日报发送时间（22:00）
+DAILY_SUMMARY_HOUR=22      # 晚报发送时间（22:00）
+MORNING_SUMMARY_HOUR=8     # 早报发送时间（08:00）
 JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值（600s = 10 分钟）
 IDLE_CLASSIFY_THRESHOLD=300  # 空闲多久后触发分类通知（300s = 5 分钟）
 
@@ -285,49 +286,59 @@ print(ll)
 }
 
 # ── 日报统计 ─────────────────────────────────────────────────────────────────
-# 从 JSONL 事件文件中聚合当日和累计数据，发送飞书卡片通知
-send_daily_summary() {
-  local today total total_stuck total_interrupt total_recovered avg_dur
-  today=$(date '+%Y-%m-%d')
-  total=$(wc -l < "$EVENTS_FILE" 2>/dev/null || echo 0)
-  total_stuck=$(grep -c '"event":"stuck"' "$EVENTS_FILE" 2>/dev/null || echo 0)
-  total_interrupt=$(grep -c '"event":"auto_interrupt"' "$EVENTS_FILE" 2>/dev/null || echo 0)
-  total_recovered=$(grep -c '"event":"recovered"' "$EVENTS_FILE" 2>/dev/null || echo 0)
-
-  local today_events today_stuck today_interrupt today_recovered
-  today_events=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-  today_stuck=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"stuck"' || echo 0)
-  today_interrupt=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"auto_interrupt"' || echo 0)
-  today_recovered=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"recovered"' || echo 0)
-
-  local avg_min="0"
-  if [ "$today_stuck" -gt 0 ]; then
-    avg_min=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep '"event":"stuck"' \
-      | grep -oE '"duration_minutes":[0-9]+' | cut -d: -f2 \
-      | awk '{s+=$1; n++} END {if(n>0) printf "%d", s/n; else print 0}')
-  fi
+# ── 早晚报 ──────────────────────────────────────────────────────────────────
+# 根据时间范围从 JSONL 提取统计，发送带会话明细的报告
+send_period_summary() {
+  local report_type="$1"   # morning_report 或 evening_report
+  local time_start="$2"    # ISO 本地时间，如 "2026-05-07T23:00:00"
+  local time_end="$3"      # ISO 本地时间，如 "2026-05-08T08:00:00"
 
   local active_count
   active_count=$(get_claude_sessions | wc -l | tr -d ' ')
 
-  notify_from_template "daily" \
-    "date=$today" "today_events=$today_events" \
-    "today_stuck=$today_stuck" "today_interrupt=$today_interrupt" \
-    "today_recovered=$today_recovered" "avg_duration=$avg_min" \
-    "total_events=$total" "total_stuck=$total_stuck" \
-    "total_interrupt=$total_interrupt" "total_recovered=$total_recovered" \
-    "session_count=$active_count"
+  local report_json
+  report_json=$(python3 "$SCRIPT_DIR/report_summary.py" "$time_start" "$time_end" 2>/dev/null || echo '{}')
 
-  log "DAILY SUMMARY sent: today=${today_events} events, total=${total} events"
+  local stuck interrupt recovered avg_dur idle_total idle_complete idle_decision details
+  stuck=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('stuck',0))" 2>/dev/null || echo 0)
+  interrupt=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auto_interrupt',0))" 2>/dev/null || echo 0)
+  recovered=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('recovered',0))" 2>/dev/null || echo 0)
+  avg_dur=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('avg_duration',0))" 2>/dev/null || echo 0)
+  idle_total=$(echo "$report_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('idle_decision',0)+d.get('idle_task_complete',0)+d.get('idle_unknown',0))" 2>/dev/null || echo 0)
+  idle_complete=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('idle_task_complete',0))" 2>/dev/null || echo 0)
+  idle_decision=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('idle_decision',0))" 2>/dev/null || echo 0)
+  details=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('details_text','无事件'))" 2>/dev/null || echo "无事件")
+
+  local today
+  today=$(date '+%Y-%m-%d')
+
+  notify_from_template "$report_type" \
+    "date=$today" "stuck=$stuck" "interrupt=$interrupt" \
+    "recovered=$recovered" "avg_duration=$avg_dur" \
+    "idle_total=$idle_total" "idle_complete=$idle_complete" \
+    "idle_decision=$idle_decision" \
+    "session_details=$details" "session_count=$active_count"
+
+  log "PERIOD SUMMARY sent: $report_type stuck=$stuck interrupt=$interrupt"
 }
 
 # ── 发现 Claude 会话 ────────────────────────────────────────────────────────
-# 遍历 tmux sessions，找到子进程为 claude-yes/agent-yes/claude 的会话
+# 一次 ps 获取所有 claude 进程的 PPID，再与 tmux pane PID 匹配
 get_claude_sessions() {
+  # 一次性获取所有 claude 相关进程的 PPID
+  local claude_ppids
+  claude_ppids=$(ps -o ppid,command 2>/dev/null \
+    | grep -E "agent-yes|claude-yes|/claude$" \
+    | grep -v grep \
+    | awk '{print $1}' \
+    | sort -u)
+  [ -z "$claude_ppids" ] && return
+
+  # 遍历 tmux sessions，匹配 pane PID
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null); do
     local pane_pid
     pane_pid=$(tmux list-panes -t "$s" -F '#{pane_pid}' 2>/dev/null | head -1)
-    if ps -o pid,ppid,command 2>/dev/null | grep -E "agent-yes|claude-yes|/claude$" | grep -v grep | awk -v ppid="$pane_pid" '$2 == ppid {found=1; exit} END {exit !found}' 2>/dev/null; then
+    if echo "$claude_ppids" | grep -qx "$pane_pid"; then
       echo "$s"
     fi
   done
@@ -413,16 +424,24 @@ do_check() {
   local now
   now=$(date +%s)
 
-  # 在配置时间发送日报（每天只发一次）
-  local current_hour
+  # 早报（08:00，覆盖昨晚 23:00 ~ 今早 08:00）和晚报（22:00，覆盖 08:00 ~ 22:00）
+  local current_hour today yesterday
   current_hour=$(date '+%H')
-  local last_summary
-  last_summary=$(get_state "_global" "last_summary_date")
-  local today
   today=$(date '+%Y-%m-%d')
-  if [ "$current_hour" = "$DAILY_SUMMARY_HOUR" ] && [ "$last_summary" != "$today" ]; then
-    send_daily_summary
-    set_state "_global" "last_summary_date" "$today"
+  yesterday=$(date -v-1d '+%Y-%m-%d' 2>/dev/null || date -d 'yesterday' '+%Y-%m-%d' 2>/dev/null)
+
+  local last_morning last_evening
+  last_morning=$(get_state "_global" "last_morning_date")
+  last_evening=$(get_state "_global" "last_evening_date")
+
+  if [ "$current_hour" = "$MORNING_SUMMARY_HOUR" ] && [ "$last_morning" != "$today" ]; then
+    send_period_summary "morning_report" "${yesterday}T23:00:00" "${today}T08:00:00"
+    set_state "_global" "last_morning_date" "$today"
+  fi
+
+  if [ "$current_hour" = "$DAILY_SUMMARY_HOUR" ] && [ "$last_evening" != "$today" ]; then
+    send_period_summary "evening_report" "${today}T08:00:00" "${today}T22:00:00"
+    set_state "_global" "last_evening_date" "$today"
   fi
 
   local sessions
@@ -684,7 +703,8 @@ show_status() {
   echo "  Intervene threshold: ${INTERVENE_THRESHOLD}s ($((INTERVENE_THRESHOLD / 60))min)"
   echo "  Intervene cooldown: ${INTERVENE_COOLDOWN}s ($((INTERVENE_COOLDOWN / 60))min)"
   echo "  JSONL stale threshold: ${JSONL_STALE_THRESHOLD}s ($((JSONL_STALE_THRESHOLD / 60))min)"
-  echo "  Daily summary: ${DAILY_SUMMARY_HOUR}:00"
+  echo "  Morning report: ${MORNING_SUMMARY_HOUR}:00 (covers 23:00-08:00)"
+  echo "  Evening report: ${DAILY_SUMMARY_HOUR}:00 (covers 08:00-22:00)"
   echo ""
   echo "Tracked sessions:"
   for session in $(get_claude_sessions); do
@@ -721,7 +741,7 @@ run_foreground() {
 
 # ── 测试通知（发送 8 种类型的样例通知）────────────────────────────────────
 test_notify() {
-  echo "Sending test notifications (8 types)..."
+  echo "Sending test notifications (10 types)..."
   local ts="[测试]"
   notify_stuck "${ts}test-session" "12"
   sleep 1
@@ -732,15 +752,29 @@ test_notify() {
   notify_daemon_start "14"
   sleep 1
   # Send daily with sample data
-  local sample_events="42" sample_stuck="3" sample_interrupt="2" sample_recovered="3" sample_avg="8"
-  local sample_total="120" sample_total_stuck="18" sample_total_interrupt="12" sample_total_recovered="18"
   notify_from_template "daily" \
-    "date=$(date '+%Y-%m-%d') ${ts}" "today_events=$sample_events" \
-    "today_stuck=$sample_stuck" "today_interrupt=$sample_interrupt" \
-    "today_recovered=$sample_recovered" "avg_duration=$sample_avg" \
-    "total_events=$sample_total" "total_stuck=$sample_total_stuck" \
-    "total_interrupt=$sample_total_interrupt" "total_recovered=$sample_total_recovered" \
+    "date=$(date '+%Y-%m-%d') ${ts}" "today_events=42" \
+    "today_stuck=3" "today_interrupt=2" \
+    "today_recovered=3" "avg_duration=8" \
+    "total_events=120" "total_stuck=18" \
+    "total_interrupt=12" "total_recovered=18" \
     "session_count=3"
+  sleep 1
+  # Morning report with sample data
+  notify_from_template "morning_report" \
+    "date=$(date '+%Y-%m-%d') ${ts}" "stuck=2" "interrupt=2" \
+    "recovered=1" "avg_duration=12" "idle_total=3" \
+    "idle_complete=0" "idle_decision=0" \
+    "session_details=**kwcode** · 挂起 1 · 恢复 1\n**gps** · 空闲 2\n**html** · 挂起 1 · 正常" \
+    "session_count=6"
+  sleep 1
+  # Evening report with sample data
+  notify_from_template "evening_report" \
+    "date=$(date '+%Y-%m-%d') ${ts}" "stuck=4" "interrupt=4" \
+    "recovered=3" "avg_duration=11" "idle_complete=8" \
+    "idle_decision=1" \
+    "session_details=**tmp** · 挂起 2 · 恢复 2 · 任务完成 3\n**gps** · 挂起 1 · 恢复 1 · 任务完成 5\n**kwcode** · 挂起 1 · 恢复 1" \
+    "session_count=6"
   sleep 1
   # Idle classification test notifications
   notify_from_template "idle_decision" \

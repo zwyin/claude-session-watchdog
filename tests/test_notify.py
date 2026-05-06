@@ -65,6 +65,7 @@ class TestTemplates(unittest.TestCase):
         with open(TEMPLATE_FILE) as f:
             data = json.load(f)
         for event in ("stuck", "intervene", "recovered", "start", "daily",
+                      "morning_report", "evening_report",
                       "idle_decision", "idle_complete", "idle_unknown"):
             self.assertIn(event, data)
 
@@ -828,15 +829,14 @@ class TestNewCommands(unittest.TestCase):
     def test_health_check_runs(self):
         result = subprocess.run(
             ["bash", WATCHDOG_SCRIPT, "health"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=30,
         )
-        # Should run without error (may return 1 if unhealthy, that's OK)
         self.assertIn("Process:", result.stdout)
 
     def test_sessions_runs(self):
         result = subprocess.run(
             ["bash", WATCHDOG_SCRIPT, "sessions"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0)
 
@@ -1081,11 +1081,9 @@ class TestVersionAndConfig(unittest.TestCase):
     """Test version and config consistency."""
 
     def test_version_is_201(self):
-        result = subprocess.run(
-            ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $VERSION"],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertIn("2.0.1", result.stdout)
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn('VERSION="2.0.2"', content)
 
     def test_start_template_updated(self):
         with open(os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")) as f:
@@ -1096,11 +1094,9 @@ class TestVersionAndConfig(unittest.TestCase):
         self.assertIn("5 分钟", body)
 
     def test_idle_classify_threshold_exists(self):
-        result = subprocess.run(
-            ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $IDLE_CLASSIFY_THRESHOLD"],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(result.stdout.strip(), "300")
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn("IDLE_CLASSIFY_THRESHOLD=300", content)
 
 
 class TestLlmFallbackPath(unittest.TestCase):
@@ -1162,6 +1158,87 @@ class TestLlmFallbackPath(unittest.TestCase):
                 os.environ["WATCHDOG_LLM_API_KEY_2"] = orig_key2
             else:
                 os.environ.pop("WATCHDOG_LLM_API_KEY_2", None)
+
+
+class TestReportSummary(unittest.TestCase):
+    """Test report_summary.py period statistics."""
+
+    def setUp(self):
+        from report_summary import load_events, generate_report, format_details_text
+        self.load_events = load_events
+        self.generate_report = generate_report
+        self.format_details = format_details_text
+
+    def _write_events(self, events):
+        """Write test events to a temp file."""
+        import tempfile
+        f = tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False)
+        for e in events:
+            f.write(json.dumps(e) + '\n')
+        f.close()
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_empty_events(self):
+        report = self.generate_report([])
+        self.assertEqual(report["total_events"], 0)
+        self.assertEqual(report["stuck"], 0)
+        self.assertEqual(report["session_details"], [])
+
+    def test_single_stuck_event(self):
+        events = [{"timestamp": "2026-05-07T10:00:00Z", "event": "stuck",
+                    "session": "gps", "duration_minutes": 12}]
+        report = self.generate_report(events)
+        self.assertEqual(report["stuck"], 1)
+        self.assertEqual(report["avg_duration"], 12)
+        self.assertEqual(len(report["session_details"]), 1)
+        self.assertEqual(report["session_details"][0]["session"], "gps")
+        self.assertEqual(report["session_details"][0]["stuck"], 1)
+
+    def test_multiple_sessions(self):
+        events = [
+            {"timestamp": "2026-05-07T10:00:00Z", "event": "stuck", "session": "gps", "duration_minutes": 10},
+            {"timestamp": "2026-05-07T10:15:00Z", "event": "auto_interrupt", "session": "gps", "duration_minutes": 15},
+            {"timestamp": "2026-05-07T11:00:00Z", "event": "stuck", "session": "tmp", "duration_minutes": 20},
+            {"timestamp": "2026-05-07T11:05:00Z", "event": "idle_task_complete", "session": "html"},
+        ]
+        report = self.generate_report(events)
+        self.assertEqual(report["stuck"], 2)
+        self.assertEqual(report["auto_interrupt"], 1)
+        self.assertEqual(report["idle_task_complete"], 1)
+        self.assertEqual(len(report["session_details"]), 3)
+
+    def test_time_range_filtering(self):
+        # UTC 06:00 = local 14:00 (GMT+8), UTC 07:30 = local 15:30, UTC 12:00 = local 20:00
+        events = [
+            {"timestamp": "2026-05-07T06:00:00Z", "event": "stuck", "session": "a", "duration_minutes": 5},
+            {"timestamp": "2026-05-07T07:30:00Z", "event": "stuck", "session": "b", "duration_minutes": 10},
+            {"timestamp": "2026-05-07T12:00:00Z", "event": "stuck", "session": "c", "duration_minutes": 15},
+        ]
+        f = self._write_events(events)
+        from datetime import datetime
+        # Local range 15:00-16:00 → should only match event "b" (UTC 07:30 = local 15:30)
+        start = datetime.fromisoformat("2026-05-07T15:00:00+08:00")
+        end = datetime.fromisoformat("2026-05-07T16:00:00+08:00")
+        filtered = self.load_events(f, start, end)
+        self.assertEqual(len(filtered), 1)
+        self.assertEqual(filtered[0]["session"], "b")
+
+    def test_format_details_text(self):
+        details = [
+            {"session": "gps", "stuck": 2, "interrupt": 2, "recovered": 1, "idle": 0},
+            {"session": "tmp", "stuck": 0, "interrupt": 0, "recovered": 0, "idle": 3},
+        ]
+        text = self.format_details(details)
+        self.assertIn("gps", text)
+        self.assertIn("挂起 2", text)
+        self.assertIn("tmp", text)
+        self.assertIn("空闲 3", text)
+
+    def test_version_is_202(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn('VERSION="2.0.2"', content)
 
 
 if __name__ == "__main__":

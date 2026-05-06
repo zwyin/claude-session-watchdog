@@ -4,7 +4,7 @@
 # logs events, sends notifications, and auto-intervenes.
 #
 # Detection v2: hash-based + JSONL last record + output token stagnation
-# Usage: ./watchdog.sh [start|stop|status|run|daemon|test-notify|daily-summary]
+# Usage: ./watchdog.sh [start|stop|status|run|daemon|test-notify|daily-summary|log|sessions|health]
 
 set -euo pipefail
 
@@ -118,6 +118,10 @@ log_event() {
   fi
   local model
   model=$(get_model_name "$session")
+  # 转义 JSON 特殊字符（反斜杠和双引号），防止破坏 JSON 结构
+  session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  notes=$(printf '%s' "$notes" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  model=$(printf '%s' "$model" | sed 's/\\/\\\\/g; s/"/\\"/g')
   printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "$event" \
@@ -143,7 +147,7 @@ notify_from_template() {
     python3 "$SCRIPT_DIR/notify.py" "$TEMPLATE_FILE" "$section" "$@" \
     2>&1 | while IFS= read -r line; do
       log "$line"
-    done
+    done || true
 }
 
 # ── 会话上下文提取 ─────────────────────────────────────────────────────────
@@ -228,14 +232,14 @@ send_daily_summary() {
   total_recovered=$(grep -c '"event":"recovered"' "$EVENTS_FILE" 2>/dev/null || echo 0)
 
   local today_events today_stuck today_interrupt today_recovered
-  today_events=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
-  today_stuck=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"stuck"' || echo 0)
-  today_interrupt=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"auto_interrupt"' || echo 0)
-  today_recovered=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"recovered"' || echo 0)
+  today_events=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | wc -l | tr -d ' ' || echo 0)
+  today_stuck=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"stuck"' || echo 0)
+  today_interrupt=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"auto_interrupt"' || echo 0)
+  today_recovered=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep -c '"event":"recovered"' || echo 0)
 
   local avg_min="0"
   if [ "$today_stuck" -gt 0 ]; then
-    avg_min=$(grep "$today" "$EVENTS_FILE" 2>/dev/null | grep '"event":"stuck"' \
+    avg_min=$(grep "\"timestamp\":\"$today" "$EVENTS_FILE" 2>/dev/null | grep '"event":"stuck"' \
       | grep -oE '"duration_minutes":[0-9]+' | cut -d: -f2 \
       | awk '{s+=$1; n++} END {if(n>0) printf "%d", s/n; else print 0}')
   fi
@@ -518,8 +522,9 @@ start_daemon() {
   init_state
 
   (
+    trap 'rm -f "$PID_FILE"; rm -rf "$LOCK_FILE"' EXIT
     while true; do
-      do_check >> "$LOG_FILE" 2>&1
+      do_check
       sleep "$SAMPLE_INTERVAL"
     done
   ) &
@@ -607,6 +612,7 @@ show_status() {
 # 写入 PID 文件以便 status 命令正确识别
 run_foreground() {
   echo $$ > "$PID_FILE"
+  trap 'rm -f "$PID_FILE"; rm -rf "$LOCK_FILE"' EXIT
   log "Watchdog starting in foreground mode (for launchd, pid $$)"
   init_state
   while true; do

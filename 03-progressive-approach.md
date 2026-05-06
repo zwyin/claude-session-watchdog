@@ -46,7 +46,7 @@ export CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000
 - 15 分钟无有效输出 → 自动 Ctrl-C + 继续任务
 
 ### 检测方式（三路联合）
-1. **屏幕 hash**：`tmux capture-pane` 取最近 20 行，去除计时器干扰后比较 MD5
+1. **屏幕 hash**：`tmux capture-pane` 从最近 50 行中取末尾 20 行，去除计时器干扰后比较 MD5
 2. **JSONL 日志**：读取会话对应项目目录下最近修改的 `.jsonl` 文件，检查最后一条记录的时间戳
 3. **输出 token 数**：从状态行提取 `输出:` 字段，检测数值是否停滞
 
@@ -74,7 +74,7 @@ export CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000
 
 - [x] 在 `.zshrc` 中添加 `CLAUDE_ENABLE_STREAM_WATCHDOG=1` 和 `CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000`
 - [x] 外部看门狗脚本实现（v2.0.0：hash + JSONL + token 三路检测）
-- [x] 飞书通知（告警 / 干预 / 恢复 / 日报 四种模板）
+- [x] 飞书通知（告警 / 干预 / 恢复 / 启动 / 日报 五种模板）
 - [x] 自动干预（15 分钟 → Ctrl-C + 继续任务）
 - [x] launchctl 开机自启
 - [ ] 长期运行数据收集与效果评估

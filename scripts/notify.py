@@ -58,7 +58,8 @@ def main():
     ts = str(int(time.time()))
     string_to_sign = f"{ts}\n{secret}"
     sign = base64.b64encode(
-        hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+        hmac.new(secret.encode("utf-8"), string_to_sign.encode("utf-8"),
+                 digestmod=hashlib.sha256).digest()
     ).decode("utf-8")
     url = f"{webhook}?timestamp={ts}&sign={urllib.parse.quote(sign)}"
 

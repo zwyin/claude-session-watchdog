@@ -56,11 +56,8 @@ def main():
         if not os.path.isdir(project_dir):
             return
 
-        # Find most recently modified .jsonl (skip subagents/)
-        jsonl_files = [
-            f for f in glob.glob(os.path.join(project_dir, "*.jsonl"))
-            if "/subagents/" not in f
-        ]
+        # Find most recently modified .jsonl in project dir (non-recursive)
+        jsonl_files = glob.glob(os.path.join(project_dir, "*.jsonl"))
         if not jsonl_files:
             return
 

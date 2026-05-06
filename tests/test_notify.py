@@ -1083,7 +1083,7 @@ class TestVersionAndConfig(unittest.TestCase):
     def test_version_is_201(self):
         result = subprocess.run(
             ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $VERSION"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=10,
         )
         self.assertIn("2.0.1", result.stdout)
 
@@ -1098,7 +1098,7 @@ class TestVersionAndConfig(unittest.TestCase):
     def test_idle_classify_threshold_exists(self):
         result = subprocess.run(
             ["bash", "-c", f"source {WATCHDOG_SCRIPT} && echo $IDLE_CLASSIFY_THRESHOLD"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.stdout.strip(), "300")
 

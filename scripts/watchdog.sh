@@ -248,36 +248,34 @@ notify_idle_classified() {
   date_str=$(date '+%Y-%m-%d')
   time_str=$(date '+%H:%M:%S')
 
-  local classify_result category summary last_lines
-  local classify_err
+  # 用管道直接传 JSON，避免 bash 双引号展开破坏 JSON 中的 \n
+  local parsed classify_err
   classify_err=$(mktemp)
-  classify_result=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" 2>"$classify_err" || echo '{}')
+  parsed=$(python3 "$SCRIPT_DIR/classify_idle.py" "$session" 2>"$classify_err" \
+    | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(d.get('category','idle_unknown'))
+print(d.get('summary','').replace('\n', ' '))
+ll = d.get('last_lines','').replace('\n', ' ')
+print(ll)
+c = d.get('confidence')
+print(str(c) if c is not None else 'N/A')
+print(d.get('trigger','').replace('\n', ' '))
+ec = d.get('effective_content','').replace('\n', ' ')
+print(ec)
+" 2>/dev/null) || parsed=$'idle_unknown\n\n\nN/A\n分类失败\n'
   if [ -s "$classify_err" ]; then
     log "CLASSIFY_ERROR[$session]: $(head -3 "$classify_err")"
   fi
   rm -f "$classify_err"
-  # 用 Python 一次提取全部字段，以 ASCII 分隔符分开（避免 read -r 截断多行内容）
-  local parsed
-  parsed=$(echo "$classify_result" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-print(d.get('category','idle_unknown'))
-print(d.get('summary','').replace('\n', '\\n'))
-ll = d.get('last_lines','').replace('\n', '\\n')
-print(ll)
-c = d.get('confidence')
-print(str(c) if c is not None else 'N/A')
-print(d.get('trigger','').replace('\n', '\\n'))
-ec = d.get('effective_content','').replace('\n', '\\n')
-print(ec)
-" 2>/dev/null) || parsed="idle_unknown"
   category=$(echo "$parsed" | sed -n '1p')
-  summary=$(echo "$parsed" | sed -n '2p' | sed 's/\\n/ /g')
-  last_lines=$(echo "$parsed" | sed -n '3p' | sed 's/\\n/\'$'\n/g')
+  summary=$(echo "$parsed" | sed -n '2p')
+  last_lines=$(echo "$parsed" | sed -n '3p')
   local confidence trigger effective_content
   confidence=$(echo "$parsed" | sed -n '4p')
-  trigger=$(echo "$parsed" | sed -n '5p' | sed 's/\\n/ /g')
-  effective_content=$(echo "$parsed" | sed -n '6p' | sed 's/\\n/\'$'\n/g')
+  trigger=$(echo "$parsed" | sed -n '5p')
+  effective_content=$(echo "$parsed" | sed -n '6p')
 
   # LLM 超时时 category 为 llm_timeout，在通知中说明
   local template="idle_unknown"

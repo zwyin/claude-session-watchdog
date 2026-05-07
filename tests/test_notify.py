@@ -1241,5 +1241,204 @@ class TestReportSummary(unittest.TestCase):
         self.assertIn('VERSION="2.0.2"', content)
 
 
+class TestStripNoise(unittest.TestCase):
+    """Test _strip_noise() in classify_idle.py."""
+
+    @classmethod
+    def setUpClass(cls):
+        import classify_idle
+        cls._strip = staticmethod(classify_idle._strip_noise)
+
+    def test_removes_separator_lines(self):
+        lines = [
+            "some content",
+            "────────────────────",
+            "more content",
+            "════════════════════",
+            "final",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, ["some content", "more content", "final"])
+
+    def test_removes_status_bar(self):
+        lines = [
+            "模型: GLM-5.1",
+            "输入: 1234 tokens",
+            "会话: my-session",
+            "目录: /home/user",
+            "real output here",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, ["real output here"])
+
+    def test_removes_empty_and_prompt(self):
+        lines = [
+            "",
+            "   ",
+            "❯",
+            "output line",
+            "❯ ",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, ["output line"])
+
+    def test_removes_box_drawing(self):
+        lines = [
+            "┌──────────────────┐",
+            "│ content inside   │",
+            "└──────────────────┘",
+            "╔══════════════════╗",
+            "real text",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, ["│ content inside   │", "real text"])
+
+    def test_removes_status_indicator(self):
+        lines = [
+            "⏵⏵ Running task",
+            "output",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, ["output"])
+
+    def test_preserves_content_with_minimal_separators(self):
+        lines = [
+            "This is a real line of code output",
+            "def function():",
+            "    return True",
+            "─────",
+        ]
+        result = self._strip(lines)
+        self.assertEqual(result, [
+            "This is a real line of code output",
+            "def function():",
+            "    return True",
+        ])
+
+    def test_empty_input(self):
+        self.assertEqual(self._strip([]), [])
+
+    def test_all_noise(self):
+        lines = ["", "──────", "模型: x", "❯"]
+        self.assertEqual(self._strip(lines), [])
+
+
+class TestCaptureLastLinesCount(unittest.TestCase):
+    """Verify capture_last_lines uses enlarged window."""
+
+    def test_default_count_is_50(self):
+        import inspect
+        from classify_idle import capture_last_lines
+        sig = inspect.signature(capture_last_lines)
+        self.assertEqual(sig.parameters['count'].default, 50)
+
+
+class TestWatchdogLastLinesEnlarged(unittest.TestCase):
+    """Verify watchdog.sh get_session_last_lines uses enlarged window."""
+
+    def test_captures_300_lines(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn('-S -300', content)
+
+    def test_returns_20_lines(self):
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        # Find the get_session_last_lines function and check tail -20
+        import re
+        match = re.search(r'get_session_last_lines\(\).*?tail -(\d+)', content, re.DOTALL)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), "20")
+
+
+class TestReviewEvents(unittest.TestCase):
+    """Test review_events.py core logic."""
+
+    @classmethod
+    def setUpClass(cls):
+        import review_events
+        cls._gen_review = staticmethod(review_events.generate_review)
+
+    def _mock_config(self):
+        return {
+            "api_key": "test",
+            "base_url": "https://api.example.com",
+            "model": "test-model",
+            "fmt": "openai",
+            "api_key_2": "",
+            "base_url_2": "",
+            "model_2": "",
+            "fmt_2": "",
+        }
+
+    def test_generate_review_summary_counts(self):
+        """Test summary computation without actual LLM calls."""
+        import unittest.mock as mock
+        config = self._mock_config()
+
+        events = [
+            {"timestamp": "2026-05-07T01:00:00Z", "event": "stuck", "session": "a", "duration_minutes": 10, "notes": "hash unchanged"},
+            {"timestamp": "2026-05-07T01:15:00Z", "event": "auto_interrupt", "session": "a", "duration_minutes": 15, "notes": "Ctrl-C"},
+            {"timestamp": "2026-05-07T01:05:00Z", "event": "idle_idle_unknown", "session": "b", "duration_minutes": 5, "notes": "idle"},
+            {"timestamp": "2026-05-07T01:06:00Z", "event": "idle_task_complete", "session": "c", "duration_minutes": 5, "notes": "complete"},
+        ]
+
+        with mock.patch('review_events.review_stuck_event', return_value=("confirmed", "test")):
+            with mock.patch('review_events.review_idle_event', return_value=("confirmed", "test")):
+                report = self._gen_review(events, config)
+
+        self.assertEqual(report["total_reviewed"], 4)
+        self.assertEqual(report["summary"]["stuck_total"], 2)
+        self.assertEqual(report["summary"]["stuck_confirmed"], 2)
+        self.assertEqual(report["summary"]["idle_total"], 2)
+        self.assertEqual(report["summary"]["idle_confirmed"], 2)
+        self.assertEqual(report["summary"]["accuracy_rate"], 1.0)
+
+    def test_generate_review_limits_to_max(self):
+        """Test that review caps at MAX_REVIEW_EVENTS."""
+        import unittest.mock as mock
+        config = self._mock_config()
+
+        events = []
+        for i in range(40):
+            events.append({"timestamp": f"2026-05-07T{i:02d}:00:00Z", "event": "stuck", "session": "a", "duration_minutes": 10, "notes": ""})
+
+        with mock.patch('review_events.review_stuck_event', return_value=("confirmed", "ok")):
+            report = self._gen_review(events, config)
+
+        self.assertLessEqual(report["total_reviewed"], 30)
+
+    def test_generate_review_empty_events(self):
+        """Test with no events in range."""
+        config = self._mock_config()
+        report = self._gen_review([], config)
+        self.assertEqual(report["total_reviewed"], 0)
+        self.assertEqual(report["summary"]["accuracy_rate"], 0)
+
+    def test_review_events_cli_no_args(self):
+        """Test CLI with no arguments returns error."""
+        result = subprocess.run(
+            ["python3", os.path.join(SCRIPT_DIR, "scripts", "review_events.py")],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_review_events_cli_no_events(self):
+        """Test CLI with time range that has no events."""
+        result = subprocess.run(
+            ["python3", os.path.join(SCRIPT_DIR, "scripts", "review_events.py"),
+             "2020-01-01T00:00:00", "2020-01-01T01:00:00"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertIn("no events", result.stdout)
+
+    def test_watchdog_review_command_exists(self):
+        """Test that watchdog.sh has review command."""
+        with open(WATCHDOG_SCRIPT) as f:
+            content = f.read()
+        self.assertIn('review)', content)
+        self.assertIn('do_review', content)
+
+
 if __name__ == "__main__":
     unittest.main()

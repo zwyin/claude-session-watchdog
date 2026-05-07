@@ -163,13 +163,13 @@ get_session_status_line() {
     | tail -5 || true
 }
 
-# 读取底部 80 行，去除状态栏和空白行，返回最后 8 行有效输出
+# 读取底部 300 行，去除噪音行，返回最后 20 行有效输出
 get_session_last_lines() {
   local session="$1"
-  tmux capture-pane -t "$session" -p -S -80 2>/dev/null \
-    | grep -v -E '(模型:|输入:|会话:|目录:|────|⏵⏵|^❯$|^[[:space:]]*$)' \
+  tmux capture-pane -t "$session" -p -S -300 2>/dev/null \
+    | grep -v -E '(模型:|输入:|会话:|目录:|────|───|⏵⏵|^❯$|^[[:space:]]*$|^[─═━]{3,}$|^[┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬│║]+$|^\.+$)' \
     | sed 's/[[:space:]]*$//' \
-    | tail -8 || true
+    | tail -20 || true
 }
 
 notify_stuck() {
@@ -886,6 +886,16 @@ health_check() {
   fi
 }
 
+do_review() {
+  local hours="${1:-12}"
+  local time_end time_start
+  time_end=$(date '+%Y-%m-%dT%H:%M:%S')
+  time_start=$(date -v-${hours}H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -d "${hours} hours ago" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)
+  log "Reviewing events from $time_start to $time_end (last ${hours}h)"
+  load_env
+  python3 "$SCRIPT_DIR/review_events.py" "$time_start" "$time_end"
+}
+
 # ── 入口 ────────────────────────────────────────────────────────────────────
 case "${1:-run}" in
   start)          start_daemon ;;
@@ -895,11 +905,12 @@ case "${1:-run}" in
   daemon)         run_foreground ;;
   test-notify)    test_notify ;;
   daily-summary)  send_period_summary "evening_report" "$(date '+%Y-%m-%d')T08:00:00" "$(date '+%Y-%m-%d')T22:00:00" ;;
+  review)         do_review "$@" ;;
   log)            show_log "$@" ;;
   sessions)       show_sessions ;;
   health)         health_check ;;
   *)
-    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary|log|sessions|health}"
+    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary|review|log|sessions|health}"
     exit 1
     ;;
 esac

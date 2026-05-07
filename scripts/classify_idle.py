@@ -18,10 +18,10 @@ Output (JSON):
 """
 
 import json
+import os
 import re
 import subprocess
 import sys
-import os
 
 # ── 关键字模式 ──────────────────────────────────────────────────────────────
 # 决策类：Claude 在等用户做非 trivial 的判断（排除 accept edits 等 claude-yes 处理的）
@@ -59,23 +59,45 @@ EXCLUDE_PATTERNS = [
     r'^\s*(Yes|No)\s*$',
 ]
 
+# 噪音行：状态栏、分隔线、空行、提示符
+_NOISE_PATTERNS = [
+    re.compile(r'^[─═─━\-]{3,}$'),        # 纯分隔线
+    re.compile(r'^[┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬│║┤├─═]+ *$'),  # box drawing
+    re.compile(r'^\s*$'),                  # 空行
+    re.compile(r'^❯\s*$'),                # 纯提示符
+    re.compile(r'^(模型|输入|会话|目录):'),  # 状态栏
+    re.compile(r'^⏵⏵'),                   # 状态指示
+    re.compile(r'^\.{3,}$'),              # 省略号行
+    re.compile(r'^─{10,}'),               # 长分隔线（可能有尾部内容）
+]
 
-def capture_last_lines(session, count=30):
-    """Read the last N lines from a tmux session pane."""
+
+def _strip_noise(lines):
+    """Remove noise lines (separators, status bars, empty lines) from captured output."""
+    clean = []
+    for line in lines:
+        if any(pat.search(line) for pat in _NOISE_PATTERNS):
+            continue
+        clean.append(line)
+    return clean
+
+
+def capture_last_lines(session, count=50):
+    """Read tmux pane, strip noise, return last N meaningful lines."""
+    raw_count = count * 6
     try:
         result = subprocess.run(
-            ["tmux", "capture-pane", "-t", session, "-p", "-S", f"-{count + 20}"],
+            ["tmux", "capture-pane", "-t", session, "-p", "-S", f"-{raw_count}"],
             capture_output=True, text=True, timeout=5,
         )
         if result.returncode != 0:
             return []
-        # Strip NBSP, filter empty lines
         lines = []
         for line in result.stdout.split("\n"):
             line = line.replace("\xc2\xa0", " ").replace("\r", "").strip()
             if line:
                 lines.append(line)
-        return lines[-count:]
+        return _strip_noise(lines)[-count:]
     except (subprocess.TimeoutExpired, OSError):
         return []
 
@@ -210,8 +232,8 @@ def classify_with_llm(lines):
     model = os.environ.get("WATCHDOG_LLM_MODEL", "claude-haiku-4-5-20251001")
     fmt = os.environ.get("WATCHDOG_LLM_FORMAT", "")
 
-    context = "\n".join(lines[-20:])
-    prompt = f"""Analyze this Claude Code session output (last 20 lines).
+    context = "\n".join(lines[-50:])
+    prompt = f"""Analyze this Claude Code session output (last 50 lines).
 The session is at an idle prompt. Classify the state:
 
 1. "decision_needed" — Claude asked the user a non-trivial question or needs human judgment

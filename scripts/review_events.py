@@ -239,10 +239,13 @@ def generate_review(events, config):
 
     stuck_confirmed = sum(1 for r in stuck_reviews if r["verdict"] == "confirmed")
     stuck_fp = sum(1 for r in stuck_reviews if r["verdict"] == "false_positive")
+    stuck_failed = sum(1 for r in stuck_reviews if r["verdict"] == "review_failed")
     idle_confirmed = sum(1 for r in idle_reviews if r["verdict"] == "confirmed")
     idle_reclassified = sum(1 for r in idle_reviews if r["verdict"].startswith("reclassified"))
-    total_verdicted = stuck_confirmed + stuck_fp + idle_confirmed + idle_reclassified
-    accuracy = (stuck_confirmed + idle_confirmed) / total_verdicted if total_verdicted > 0 else 0
+    idle_failed = sum(1 for r in idle_reviews if r["verdict"] == "review_failed")
+    total_verdicted = len(stuck_reviews) + len(idle_reviews)
+    confirmed_total = stuck_confirmed + idle_confirmed
+    accuracy = confirmed_total / total_verdicted if total_verdicted > 0 else 0
 
     return {
         "period": {
@@ -256,9 +259,11 @@ def generate_review(events, config):
             "stuck_total": len(stuck_reviews),
             "stuck_confirmed": stuck_confirmed,
             "stuck_false_positive": stuck_fp,
+            "stuck_review_failed": stuck_failed,
             "idle_total": len(idle_reviews),
             "idle_confirmed": idle_confirmed,
             "idle_reclassified": idle_reclassified,
+            "idle_review_failed": idle_failed,
             "accuracy_rate": round(accuracy, 2),
         },
     }

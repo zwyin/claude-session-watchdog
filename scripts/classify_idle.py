@@ -61,7 +61,7 @@ EXCLUDE_PATTERNS = [
 
 # 噪音行：状态栏、分隔线、空行、提示符
 _NOISE_PATTERNS = [
-    re.compile(r'^[─═─━\-]{3,}$'),        # 纯分隔线
+    re.compile(r'^[─═━\-]{3,}$'),            # 纯分隔线
     re.compile(r'^[┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬│║┤├─═]+ *$'),  # box drawing
     re.compile(r'^\s*$'),                  # 空行
     re.compile(r'^❯\s*$'),                # 纯提示符

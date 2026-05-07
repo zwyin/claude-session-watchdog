@@ -51,7 +51,6 @@ COMPLETE_PATTERNS = [
     r'I\'ve (?:completed|finished|done)',
     r'[Aa]ll changes.*(?:applied|made)',
     r'ready for review',
-    r'⏵⏵',
 ]
 
 # 排除：claude-yes wrapper 自动处理的简单权限确认

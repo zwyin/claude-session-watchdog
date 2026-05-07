@@ -13,6 +13,8 @@ sent to an LLM for semantic analysis (with timeout/fallback).
 
 Output (JSON):
   {"category": "decision_needed|task_complete|ambiguous|idle_unknown",
+   "confidence": 0.0-1.0 or null,
+   "trigger": "key phrase or empty",
    "summary": "one-line context summary",
    "last_lines": "last 5 lines of pane content"}
 """
@@ -212,7 +214,12 @@ def _call_llm(base_url, api_key, model, prompt, fmt=None):
 
     parsed = _extract_json_from_text(text)
     if parsed:
-        return parsed.get("category"), parsed.get("summary", "")
+        return (
+            parsed.get("category"),
+            parsed.get("summary", ""),
+            parsed.get("confidence"),
+            parsed.get("trigger", ""),
+        )
     return None
 
 
@@ -233,16 +240,18 @@ def classify_with_llm(lines):
     fmt = os.environ.get("WATCHDOG_LLM_FORMAT", "")
 
     context = "\n".join(lines[-50:])
-    prompt = f"""Analyze this Claude Code session output (last 50 lines).
-The session is at an idle prompt. Classify the state:
+    prompt = f"""Below is the tail of a Claude Code session. The session has just become idle (paused at the ❯ prompt).
 
-1. "decision_needed" — Claude asked the user a non-trivial question or needs human judgment
-2. "task_complete" — Claude finished work and is waiting for user review/feedback
-3. "idle_unknown" — Cannot determine, just idle
+IMPORTANT: Focus ONLY on Claude's LAST message — the most recent output block before the idle prompt. Earlier interactions are completed and irrelevant.
 
-Reply in JSON only: {{"category": "...", "summary": "one-line Chinese summary"}}
+Based on Claude's LAST message only, classify why the session is idle:
+1. "decision_needed" — Claude's last message asks a question, proposes options, or needs human decision/approval
+2. "task_complete" — Claude's last message reports work finished, all tasks done, waiting for review
+3. "idle_unknown" — Cannot determine from the last message (e.g. mid-execution, unclear state)
 
-Session output:
+Reply in JSON only: {{"category": "...", "confidence": 0.0-1.0, "trigger": "the key phrase that triggered your classification", "summary": "one-line Chinese summary of Claude's LAST message"}}
+
+Session output (last 50 effective lines, noise filtered):
 {context}"""
 
     # Primary endpoint
@@ -266,7 +275,7 @@ Session output:
         except Exception:
             pass
 
-    return "llm_timeout", "LLM 调用失败（主备均不可用）"
+    return "llm_timeout", "LLM 调用失败（主备均不可用）", None, ""
 
 
 def main():
@@ -274,7 +283,10 @@ def main():
         sys.exit(0)
 
     session = sys.argv[1]
-    use_llm = "--llm" in sys.argv
+    # Default to --llm-only if no classification flag specified
+    has_classify_flag = any(a in sys.argv for a in ("--llm", "--llm-only", "--keyword-only"))
+    if not has_classify_flag:
+        sys.argv.append("--llm-only")
 
     lines = capture_last_lines(session)
     if not lines:
@@ -284,16 +296,33 @@ def main():
     category, context_lines = classify_by_keywords(lines)
 
     summary = "; ".join(context_lines[:2]) if context_lines else ""
+    confidence = None
+    trigger = ""
 
-    # Step 2: LLM for ambiguous cases (if enabled and needed)
-    if category == "ambiguous" and use_llm:
+    # Step 2: LLM classification
+    # --llm: keyword pre-filter + LLM for ambiguous/unknown (legacy)
+    # --llm-only: all cases go to LLM, skip keyword (default)
+    # no flag: keyword only, no LLM
+    use_llm = "--llm" in sys.argv or "--llm-only" in sys.argv
+    llm_only = "--llm-only" in sys.argv
+
+    if use_llm and (llm_only or category in ("ambiguous", "idle_unknown")):
         llm_result = classify_with_llm(lines)
-        if llm_result and llm_result[0]:
+        if llm_result and llm_result[0] and llm_result[0] != "llm_timeout":
             category = llm_result[0]
             summary = llm_result[1] or summary
+            if len(llm_result) > 2 and llm_result[2] is not None:
+                confidence = llm_result[2]
+            if len(llm_result) > 3:
+                trigger = llm_result[3]
+        elif llm_only:
+            # LLM-only 模式超时时，用关键字结果兜底
+            pass
 
     output = {
         "category": category,
+        "confidence": confidence,
+        "trigger": trigger,
         "summary": summary[:200],
         "last_lines": "\n".join(lines[-5:]),
     }

@@ -602,6 +602,23 @@ class TestIdlePromptDetection(unittest.TestCase):
         )
         self.assertEqual(result.stdout.strip(), "IDLE")
 
+    def test_status_indicator_not_idle(self):
+        """⏵⏵ alone should NOT be treated as idle — it appears during sub-agent runs."""
+        # Last line is NOT a pure ❯ prompt, just has ⏵⏵ in progress output
+        result = subprocess.run(
+            ["bash", "-c", "echo '⏵⏵' | grep -qE '^\\s*❯\\s*$' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "ACTIVE")
+
+    def test_progress_line_not_idle(self):
+        """Progress output with ⏵⏵ should not be treated as idle."""
+        result = subprocess.run(
+            ["bash", "-c", "echo '· Checking quality… (57m 0s)' | grep -qE '^\\s*❯\\s*$' && echo IDLE || echo ACTIVE"],
+            capture_output=True, text=True, timeout=10,
+        )
+        self.assertEqual(result.stdout.strip(), "ACTIVE")
+
 
 class TestTimerStripping(unittest.TestCase):
     """Test hash normalization that strips timer/timestamp patterns."""
@@ -1091,12 +1108,12 @@ class TestVersionAndConfig(unittest.TestCase):
         body = templates["start"]["body"]
         self.assertIn("空闲分类", body)
         self.assertIn("LLM", body)
-        self.assertIn("5 分钟", body)
+        self.assertIn("10 分钟", body)
 
     def test_idle_classify_threshold_exists(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
-        self.assertIn("IDLE_CLASSIFY_THRESHOLD=300", content)
+        self.assertIn("IDLE_CLASSIFY_THRESHOLD=600", content)
 
 
 class TestLlmFallbackPath(unittest.TestCase):

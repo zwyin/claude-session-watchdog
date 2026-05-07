@@ -1100,7 +1100,7 @@ class TestVersionAndConfig(unittest.TestCase):
     def test_version_is_201(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
-        self.assertIn('VERSION="2.0.2"', content)
+        self.assertIn('VERSION="2.0.4"', content)
 
     def test_start_template_updated(self):
         with open(os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")) as f:
@@ -1127,7 +1127,7 @@ class TestLlmFallbackPath(unittest.TestCase):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ConnectionError("primary down")
-            return ("task_complete", "done")
+            return ("task_complete", "done", 0.95, "all tasks finished")
 
         original = classify_idle._call_llm
         classify_idle._call_llm = mock_call
@@ -1137,7 +1137,7 @@ class TestLlmFallbackPath(unittest.TestCase):
             os.environ["WATCHDOG_LLM_API_KEY"] = "key1"
             os.environ["WATCHDOG_LLM_API_KEY_2"] = "key2"
             result = classify_idle.classify_with_llm(["some line"])
-            self.assertEqual(result, ("task_complete", "done"))
+            self.assertEqual(result, ("task_complete", "done", 0.95, "all tasks finished"))
             self.assertEqual(call_count[0], 2)
         finally:
             classify_idle._call_llm = original
@@ -1255,7 +1255,7 @@ class TestReportSummary(unittest.TestCase):
     def test_version_is_202(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
-        self.assertIn('VERSION="2.0.2"', content)
+        self.assertIn('VERSION="2.0.4"', content)
 
 
 class TestStripNoise(unittest.TestCase):

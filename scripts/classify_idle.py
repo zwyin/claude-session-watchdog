@@ -325,6 +325,7 @@ def main():
         "trigger": trigger,
         "summary": summary[:200],
         "last_lines": "\n".join(lines[-5:]),
+        "effective_content": "\n".join(lines[-50:]),
     }
     print(json.dumps(output, ensure_ascii=False))
 

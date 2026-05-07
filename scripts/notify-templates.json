@@ -37,16 +37,16 @@
   "idle_decision": {
     "title": "[看门狗] 等待决策: {session}",
     "color": "yellow",
-    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 需要人工确认或决策\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 需要人工确认或决策\n**置信度:** {confidence}\n**触发关键词:** {trigger}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
   },
   "idle_complete": {
     "title": "[看门狗] 任务完成: {session}",
     "color": "green",
-    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 任务已完成，等待验收\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 任务已完成，等待验收\n**置信度:** {confidence}\n**触发关键词:** {trigger}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
   },
   "idle_unknown": {
     "title": "[看门狗] 会话空闲: {session}",
     "color": "blue",
-    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 空闲，无法自动判断原因\n\n**末尾输出**\n{last_output}"
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 空闲，无法自动判断原因\n**置信度:** {confidence}\n**触发关键词:** {trigger}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
   }
 }

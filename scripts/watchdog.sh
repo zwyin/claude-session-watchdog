@@ -112,6 +112,7 @@ clear_state() {
 log_event() {
   local event="$1" session="$2" duration="$3" notes="${4:-}"
   local intervention="${5:-none}"
+  local context="${6:-}"
   mkdir -p "$(dirname "$EVENTS_FILE")"
   # 只有 recovered 事件设置 recovered=true
   local recovered_val="false"
@@ -124,17 +125,33 @@ log_event() {
   session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"/g')
   notes=$(printf '%s' "$notes" | sed 's/\\/\\\\/g; s/"/\\"/g')
   model=$(printf '%s' "$model" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    "$event" \
-    "$session" \
-    "$session" \
-    "$duration" \
-    "$model" \
-    "$intervention" \
-    "$recovered_val" \
-    "$notes" \
-    >> "$EVENTS_FILE"
+  context=$(printf '%s' "$context" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  if [ -n "$context" ]; then
+    printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s","context":"%s"}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$event" \
+      "$session" \
+      "$session" \
+      "$duration" \
+      "$model" \
+      "$intervention" \
+      "$recovered_val" \
+      "$notes" \
+      "$context" \
+      >> "$EVENTS_FILE"
+  else
+    printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s"}\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      "$event" \
+      "$session" \
+      "$session" \
+      "$duration" \
+      "$model" \
+      "$intervention" \
+      "$recovered_val" \
+      "$notes" \
+      >> "$EVENTS_FILE"
+  fi
 }
 
 # ── 通知模板引擎 ─────────────────────────────────────────────────────────────
@@ -248,10 +265,19 @@ print(d.get('category','idle_unknown'))
 print(d.get('summary','').replace('\n', '\\n'))
 ll = d.get('last_lines','').replace('\n', '\\n')
 print(ll)
+c = d.get('confidence')
+print(str(c) if c is not None else 'N/A')
+print(d.get('trigger','').replace('\n', '\\n'))
+ec = d.get('effective_content','').replace('\n', '\\n')
+print(ec)
 " 2>/dev/null) || parsed="idle_unknown"
   category=$(echo "$parsed" | sed -n '1p')
   summary=$(echo "$parsed" | sed -n '2p' | sed 's/\\n/ /g')
   last_lines=$(echo "$parsed" | sed -n '3p' | sed 's/\\n/\'$'\n/g')
+  local confidence trigger effective_content
+  confidence=$(echo "$parsed" | sed -n '4p')
+  trigger=$(echo "$parsed" | sed -n '5p' | sed 's/\\n/ /g')
+  effective_content=$(echo "$parsed" | sed -n '6p' | sed 's/\\n/\'$'\n/g')
 
   # LLM 超时时 category 为 llm_timeout，在通知中说明
   local template="idle_unknown"
@@ -277,12 +303,13 @@ print(ll)
       ;;
   esac
 
-  log "IDLE $label: $session (${duration}min)"
-  log_event "idle_$category" "$session" "$duration" "idle: $label" "none"
+  log "IDLE $label: $session (${duration}min) confidence=$confidence trigger=$trigger"
+  log_event "idle_$category" "$session" "$duration" "idle: $label | confidence=$confidence | trigger=$trigger | summary=$summary" "none" "$effective_content"
   osascript -e "display notification \"$session $label ${duration}min\" with title \"Watchdog: idle\"" 2>/dev/null || true
   notify_from_template "$template" \
     "session=$session" "duration=$duration" "date=$date_str" "time=$time_str" \
-    "summary=$summary" "last_output=$last_lines"
+    "summary=$summary" "last_output=$last_lines" \
+    "confidence=$confidence" "trigger=$trigger"
 }
 
 # ── 日报统计 ─────────────────────────────────────────────────────────────────

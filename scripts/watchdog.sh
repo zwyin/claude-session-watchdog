@@ -637,6 +637,11 @@ do_check() {
 # stop_daemon：停止进程
 # mkdir 锁防止重复启动（跨平台原子操作）
 start_daemon() {
+  # 启动前先杀残留进程（防止 launchd KeepAlive 造成的多实例）
+  while pkill -f "watchdog.sh" 2>/dev/null; do sleep 0.3; done
+  rm -f "$PID_FILE"
+  rm -rf "$LOCK_FILE"
+
   # 检查是否已有实例运行
   if [ -f "$PID_FILE" ]; then
     local old_pid
@@ -680,37 +685,35 @@ start_daemon() {
   echo $pid > "$LOCK_FILE/pid"
   log "Watchdog started (pid $pid), checking every ${SAMPLE_INTERVAL}s"
 
+  # reload launchd，让它跟踪新 PID
+  launchctl load ~/Library/LaunchAgents/com.claude.watchdog.plist 2>/dev/null || true
+
   local count
   count=$(get_claude_sessions | wc -l | tr -d ' ')
   notify_daemon_start "$count"
 }
 
 stop_daemon() {
-  if [ ! -f "$PID_FILE" ]; then
-    echo "Watchdog not running (no PID file)"
-    return 0
+  # 先 unload launchd，防止 KeepAlive 立刻拉起新进程
+  if launchctl list | grep -q 'com.claude.watchdog' 2>/dev/null; then
+    launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist 2>/dev/null || true
   fi
-  local pid
-  pid=$(cat "$PID_FILE")
-  if kill -0 "$pid" 2>/dev/null; then
-    kill "$pid"
-    # Wait for process to exit
-    local wait=0
-    while kill -0 "$pid" 2>/dev/null && [ $wait -lt 10 ]; do
-      sleep 0.5
-      wait=$((wait + 1))
-    done
-    log "Watchdog stopped (pid $pid)"
-    echo "Watchdog stopped"
-    # 提醒 launchd KeepAlive 会自动重启
-    if launchctl list | grep -q 'com.claude.watchdog' 2>/dev/null; then
-      echo "Note: launchd KeepAlive will restart this. To disable: launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist"
-    fi
-  else
-    echo "Watchdog process not found (stale pid $pid)"
-  fi
+  # 杀所有 watchdog 进程（不只是 PID 文件里的那个）
+  local count=0
+  while pkill -f "watchdog.sh" 2>/dev/null; do
+    count=$((count + 1))
+    sleep 0.5
+    # 最多重试 10 次，防止无限循环
+    [ $count -ge 10 ] && break
+  done
   rm -f "$PID_FILE"
   rm -rf "$LOCK_FILE"
+  if [ $count -gt 0 ]; then
+    log "Watchdog stopped (killed $count process group(s))"
+    echo "Watchdog stopped"
+  else
+    echo "Watchdog not running"
+  fi
 }
 
 show_status() {

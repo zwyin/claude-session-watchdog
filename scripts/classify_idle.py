@@ -1,22 +1,20 @@
 """Classify idle session state from tmux pane output.
 
-Usage: classify_idle.py <session> [--llm]
+Usage: classify_idle.py <session> [--llm|--llm-only|--keyword-only]
 
-Reads the last 30 lines of the tmux pane, runs keyword matching to classify:
-  - decision_needed: Claude is waiting for human input/decision
-  - task_complete: Claude finished work, waiting for review
-  - ambiguous: both patterns matched, needs human judgment
-  - idle_unknown: no clear classification
+Default mode (--llm-only): all cases go to LLM, keyword as fallback on timeout.
+  --llm:          keyword first, LLM only for ambiguous/unknown
+  --keyword-only: keyword only, no LLM
 
-With --llm flag and WATCHDOG_LLM_API_KEY env var set, ambiguous cases are
-sent to an LLM for semantic analysis (with timeout/fallback).
+Reads the last 50 effective lines (noise filtered) of the tmux pane.
 
 Output (JSON):
   {"category": "decision_needed|task_complete|ambiguous|idle_unknown",
-   "confidence": 0.0-1.0 or null,
+   "confidence": 0.0-1.0 or "high"/"low",
    "trigger": "key phrase or empty",
    "summary": "one-line context summary",
-   "last_lines": "last 5 lines of pane content"}
+   "last_lines": "last 5 lines of pane content",
+   "effective_content": "last 50 effective lines"}
 """
 
 import json
@@ -63,7 +61,7 @@ EXCLUDE_PATTERNS = [
 # 噪音行：状态栏、分隔线、空行、提示符
 _NOISE_PATTERNS = [
     re.compile(r'^[─═━\-]{3,}$'),            # 纯分隔线
-    re.compile(r'^[┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬│║┤├─═]+ *$'),  # box drawing
+    re.compile(r'^[┌┐└┘├┤┬┴┼╔╗╚╝╠╣╦╩╬│║─═]+ *$'),     # box drawing
     re.compile(r'^\s*$'),                  # 空行
     re.compile(r'^❯\s*$'),                # 纯提示符
     re.compile(r'^(模型|输入|会话|目录):'),  # 状态栏
@@ -166,7 +164,7 @@ def _extract_json_from_text(text):
 
 
 def _call_llm(base_url, api_key, model, prompt, fmt=None):
-    """调用单个 LLM 端点。自动识别 Anthropic/OpenAI 格式。返回 (category, summary) 或 None。"""
+    """调用单个 LLM 端点。自动识别 Anthropic/OpenAI 格式。返回 (category, summary, confidence, trigger) 或 None。"""
     import urllib.request
 
     is_anthropic = _is_anthropic_format(base_url, fmt)

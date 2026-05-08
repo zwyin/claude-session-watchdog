@@ -11,11 +11,15 @@ set -euo pipefail
 # launchd 不加载 shell profile，需要手动补充 brew 路径
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-# 加载 .env 配置（飞书 webhook 凭证），不配置则仅发 macOS 本地通知
+# 加载 .env 配置（飞书 webhook + LLM API），不配置则仅发 macOS 本地通知
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$SCRIPT_DIR/../.env" ]; then
   # shellcheck disable=SC1090
   source "$SCRIPT_DIR/../.env"
+  # export 所有 WATCHDOG_ 和 FEISHU_ 变量，使 python3 子进程可通过 os.environ 读取
+  for var in $(compgen -v | grep -E '^(WATCHDOG_|FEISHU_)'); do
+    export "$var" 2>/dev/null || true
+  done
 fi
 
 # ── 前置依赖检查 ──────────────────────────────────────────────────────────

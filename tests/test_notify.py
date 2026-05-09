@@ -749,7 +749,7 @@ class TestNotifyPy(unittest.TestCase):
             capture_output=True, text=True, timeout=10,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("RENDERED:", result.stdout)
+        self.assertIn("RENDER_SKIP:", result.stdout)
 
     def test_chinese_values(self):
         env = {k: v for k, v in os.environ.items()

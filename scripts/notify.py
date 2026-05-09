@@ -10,11 +10,21 @@ import json
 import hmac
 import hashlib
 import base64
+import re
 import time
 import urllib.request
 import urllib.parse
 import os
 import sys
+
+
+def sanitize_for_feishu(text):
+    """Strip control characters and ANSI escape sequences from text."""
+    # Remove ANSI escape sequences (color codes, cursor movement, etc.)
+    text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+    # Remove other control characters (except \n and \t)
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
+    return text
 
 
 def main():
@@ -33,6 +43,10 @@ def main():
     color = tpl.get("color", "blue")
     body = tpl.get("body", "")
 
+    if not title and not body:
+        print(f"RENDER_SKIP: unknown template section '{section}'")
+        return
+
     # Parse key=value arguments
     variables = {}
     for arg in sys.argv[3:]:
@@ -41,12 +55,15 @@ def main():
             k, v = arg.split("=", 1)
             variables[k.strip()] = v.strip()
 
-    # Substitute placeholders
+    # Substitute placeholders and sanitize
     for k, v in variables.items():
         title = title.replace("{" + k + "}", v)
         body = body.replace("{" + k + "}", v)
 
-    print(f"RENDERED: color={color} title={title}")
+    title = sanitize_for_feishu(title)
+    body = sanitize_for_feishu(body)
+
+    print(f"RENDERED: color={color} title={title} body_len={len(body)}")
 
     # Send to Feishu
     webhook = os.environ.get("FEISHU_WEBHOOK", "")

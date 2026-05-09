@@ -368,7 +368,7 @@ get_claude_sessions() {
   for s in $(tmux list-sessions -F '#{session_name}' 2>/dev/null); do
     local pane_pid
     pane_pid=$(tmux list-panes -t "$s" -F '#{pane_pid}' 2>/dev/null | head -1)
-    if echo "$claude_ppids" | grep -qx "$pane_pid"; then
+    if echo "$claude_ppids" 2>/dev/null | grep -qx "$pane_pid"; then
       echo "$s"
     fi
   done

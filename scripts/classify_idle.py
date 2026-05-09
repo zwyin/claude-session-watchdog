@@ -11,7 +11,7 @@ Reads the last 50 effective lines (noise filtered) of the tmux pane.
 Output (JSON):
   {"category": "decision_needed|task_complete|ambiguous|idle_unknown",
    "confidence": 0.0-1.0 or "high"/"low",
-   "trigger": "key phrase or empty",
+   "trigger": "key reasoning/evidence phrase or empty",
    "summary": "one-line context summary",
    "last_lines": "last 5 lines of pane content",
    "effective_content": "last 50 effective lines"}
@@ -155,12 +155,20 @@ def classify_with_llm(lines):
 
 IMPORTANT: Focus ONLY on Claude's LAST message — the most recent output block before the idle prompt. Earlier interactions are completed and irrelevant.
 
+Claude Code UI symbols you must understand:
+- ✳ Running task… (Xm Xs · ↓ X.Xk tokens) = CURRENTLY EXECUTING, not idle/complete
+- ✻ Worked for Xm Xs = phase completed, session transitioning
+- ⏺ message = Claude's status update or action
+- ⎿ output = tool/sub-agent output
+- ✔ item = completed sub-task
+- ◼ item = PENDING sub-task (if any ◼ remains, task is NOT complete)
+
 Based on Claude's LAST message only, classify why the session is idle:
 1. "decision_needed" — Claude's last message asks a question, proposes options, or needs human decision/approval
-2. "task_complete" — Claude's last message reports work finished, all tasks done, waiting for review
-3. "idle_unknown" — Cannot determine from the last message (e.g. mid-execution, unclear state)
+2. "task_complete" — Claude's last message reports work finished, all tasks done, waiting for review. Only if NO pending ◼ items remain and the last message explicitly says everything is done.
+3. "idle_unknown" — Cannot determine from the last message (e.g. mid-execution with ✳, unclear state, mix of ✔ and ◼)
 
-Reply in JSON only: {{"category": "...", "confidence": 0.0-1.0, "trigger": "the key phrase that triggered your classification", "summary": "one-line Chinese summary of Claude's LAST message"}}
+Reply in JSON only: {{"category": "...", "confidence": 0.0-1.0, "reasoning": "the most meaningful key phrase from Claude's LAST message that supports your classification (NOT a timing indicator like 'Baked for' or 'Worked for')", "summary": "one-line Chinese summary of Claude's LAST message"}}
 
 Session output (last 50 effective lines, noise filtered):
 {context}"""
@@ -177,7 +185,7 @@ Session output (last 50 effective lines, noise filtered):
                     cat,
                     parsed.get("summary", ""),
                     parsed.get("confidence"),
-                    parsed.get("trigger", ""),
+                    parsed.get("reasoning", ""),
                 )
         except Exception:
             continue
@@ -204,12 +212,12 @@ def main():
 
     summary = "; ".join(context_lines[:2]) if context_lines else ""
     confidence = 0.7
-    trigger = "; ".join(context_lines[:2]) if context_lines else ""
+    reasoning = "; ".join(context_lines[:2]) if context_lines else ""
 
     # 关键字匹配 idle_unknown 时降低置信度
     if category == "idle_unknown":
         confidence = 0.3
-        trigger = "无关键字匹配"
+        reasoning = "无关键字匹配"
 
     # Step 2: LLM classification
     # --llm: keyword pre-filter + LLM for ambiguous/unknown (legacy)
@@ -226,18 +234,18 @@ def main():
             if len(llm_result) > 2 and llm_result[2] is not None:
                 confidence = llm_result[2]
             if len(llm_result) > 3:
-                trigger = llm_result[3]
+                reasoning = llm_result[3]
         elif llm_only:
             # LLM-only 模式超时时，用关键字结果兜底
             confidence = 0.3
-            trigger = "LLM 超时，关键字兜底"
+            reasoning = "LLM 超时，关键字兜底"
 
     output = {
         "category": category,
         "confidence": confidence,
-        "trigger": trigger,
+        "reasoning": reasoning,
         "summary": summary[:200],
-        "last_lines": "\n".join(lines[-5:]),
+        "last_lines": "\n".join(lines[-15:]),
         "effective_content": "\n".join(lines[-50:]),
     }
     print(json.dumps(output, ensure_ascii=False))

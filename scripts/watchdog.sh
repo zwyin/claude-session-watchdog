@@ -265,7 +265,7 @@ ll = d.get('last_lines','').replace('\n', ' ')
 print(ll)
 c = d.get('confidence')
 print(str(c) if c is not None else 'N/A')
-print(d.get('trigger','').replace('\n', ' '))
+print(d.get('reasoning','').replace('\n', ' '))
 ec = d.get('effective_content','').replace('\n', ' ')
 print(ec)
 " 2>/dev/null) || parsed=$'idle_unknown\n\n\nN/A\n分类失败\n'
@@ -276,9 +276,9 @@ print(ec)
   category=$(echo "$parsed" | sed -n '1p')
   summary=$(echo "$parsed" | sed -n '2p')
   last_lines=$(echo "$parsed" | sed -n '3p')
-  local confidence trigger effective_content
+  local confidence reasoning effective_content
   confidence=$(echo "$parsed" | sed -n '4p')
-  trigger=$(echo "$parsed" | sed -n '5p')
+  reasoning=$(echo "$parsed" | sed -n '5p')
   effective_content=$(echo "$parsed" | sed -n '6p')
 
   local template="idle_unknown"
@@ -299,13 +299,16 @@ print(ec)
       ;;
   esac
 
-  log "IDLE $label: $session (${duration}min) confidence=$confidence trigger=$trigger"
-  log_event "idle_$category" "$session" "$duration" "idle: $label | confidence=$confidence | trigger=$trigger | summary=$summary" "none" "$effective_content"
+  log "IDLE $label: $session (${duration}min) confidence=$confidence reasoning=$reasoning"
+  log_event "idle_$category" "$session" "$duration" "idle: $label | confidence=$confidence | reasoning=$reasoning | summary=$summary" "none" "$effective_content"
   osascript -e "display notification \"$session $label ${duration}min\" with title \"Watchdog: idle\"" 2>/dev/null || true
+  # 直接从 tmux 重新抓取末尾输出，保留原始换行（不走 JSON 管道，避免 \n 被展平）
+  local last_output
+  last_output=$(get_session_last_lines "$session")
   notify_from_template "$template" \
     "session=$session" "duration=$duration" "date=$date_str" "time=$time_str" \
-    "summary=$summary" "last_output=$last_lines" \
-    "confidence=$confidence" "trigger=$trigger"
+    "summary=$summary" "last_output=$last_output" \
+    "confidence=$confidence" "reasoning=$reasoning"
 }
 
 # ── 日报统计 ─────────────────────────────────────────────────────────────────

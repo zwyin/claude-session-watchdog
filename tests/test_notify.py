@@ -724,11 +724,13 @@ class TestNotifyPy(unittest.TestCase):
     """Test standalone notify.py script."""
 
     def test_render_without_feishu(self):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("FEISHU_")}
         result = subprocess.run(
             ["python3", NOTIFY_PY, TEMPLATE_FILE, "stuck",
              "session=test-sess", "duration=5", "date=05-06",
              "time=12:00", "status_line=model", "last_output=out"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=env,
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("RENDERED:", result.stdout)
@@ -750,11 +752,13 @@ class TestNotifyPy(unittest.TestCase):
         self.assertIn("RENDERED:", result.stdout)
 
     def test_chinese_values(self):
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith("FEISHU_")}
         result = subprocess.run(
             ["python3", NOTIFY_PY, TEMPLATE_FILE, "stuck",
              "session=测试会话", "duration=30", "date=05-06",
              "time=22:00", "status_line=模型: GLM-5.1", "last_output=输出内容"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, env=env,
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn("测试会话", result.stdout)
@@ -1127,7 +1131,7 @@ class TestLlmFallbackPath(unittest.TestCase):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ConnectionError("primary down")
-            return {"category": "task_complete", "summary": "done", "confidence": 0.95, "trigger": "all tasks finished"}
+            return {"category": "task_complete", "summary": "done", "confidence": 0.95, "reasoning": "all tasks finished"}
 
         original = classify_idle.call_llm
         classify_idle.call_llm = mock_call

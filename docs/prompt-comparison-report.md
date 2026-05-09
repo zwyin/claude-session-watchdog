@@ -60,7 +60,7 @@ of Claude's LAST message"}
 
 ```
 Reply in JSON only: {"category": "...", "confidence": 0.0-1.0,
-"trigger": "the key phrase that triggered your classification",
+"reasoning": "the key phrase that supports your classification",
 "summary": "one-line Chinese summary of Claude's LAST message"}
 ```
 

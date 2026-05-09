@@ -822,15 +822,18 @@ test_notify() {
   # Idle classification test notifications
   notify_from_template "idle_decision" \
     "session=${ts}test-session" "duration=8" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
-    "summary=是否使用 Redis 作为缓存方案？" "last_output=我建议用 Redis，你觉得呢？"
+    "summary=是否使用 Redis 作为缓存方案？" "last_output=我建议用 Redis，你觉得呢？" \
+    "confidence=0.85" "reasoning=是否使用 Redis"
   sleep 1
   notify_from_template "idle_complete" \
     "session=${ts}test-session" "duration=5" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
-    "summary=接口改造已完成，代码已提交" "last_output=功能全部完成"
+    "summary=接口改造已完成，代码已提交" "last_output=功能全部完成" \
+    "confidence=0.9" "reasoning=功能全部完成"
   sleep 1
   notify_from_template "idle_unknown" \
     "session=${ts}test-session" "duration=10" "date=$(date '+%Y-%m-%d')" "time=$(date '+%H:%M:%S')" \
-    "last_output=无明确分类信息"
+    "summary=无法判断空闲原因" "last_output=无明确分类信息" \
+    "confidence=0.3" "reasoning=无关键字匹配"
   echo "Done."
 }
 
@@ -937,7 +940,6 @@ do_review() {
   time_end=$(date '+%Y-%m-%dT%H:%M:%S')
   time_start=$(date -v-${hours}H '+%Y-%m-%dT%H:%M:%S' 2>/dev/null || date -d "${hours} hours ago" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null)
   log "Reviewing events from $time_start to $time_end (last ${hours}h)"
-  load_env
   python3 "$SCRIPT_DIR/review_events.py" "$time_start" "$time_end"
 }
 

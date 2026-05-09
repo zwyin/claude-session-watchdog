@@ -309,6 +309,7 @@ print(ec)
   # 直接从 tmux 重新抓取末尾输出，保留原始换行（不走 JSON 管道，避免 \n 被展平）
   local last_output
   last_output=$(get_session_last_lines "$session")
+  [ -z "$last_output" ] && last_output="(无可用输出)"
   notify_from_template "$template" \
     "session=$session" "duration=$duration" "date=$date_str" "time=$time_str" \
     "summary=$summary" "last_output=$last_output" \

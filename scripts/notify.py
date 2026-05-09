@@ -20,8 +20,11 @@ import sys
 
 def sanitize_for_feishu(text):
     """Strip control characters and ANSI escape sequences from text."""
-    # Remove ANSI escape sequences (color codes, cursor movement, etc.)
-    text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', text)
+    # Remove OSC sequences (\x1b]...terminated by BEL or ST)
+    text = re.sub(r'\x1b\][^\x07]*\x07', '', text)
+    text = re.sub(r'\x1b\][^\x1b]*\x1b\\', '', text)
+    # Remove ANSI escape sequences (CSI: color codes, cursor movement, etc.)
+    text = re.sub(r'\x1b\[[0-9;]*[a-zA-Z@ ]', '', text)
     # Remove other control characters (except \n and \t)
     text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
     return text

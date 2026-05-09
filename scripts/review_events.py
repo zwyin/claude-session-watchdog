@@ -26,96 +26,18 @@ import os
 import sys
 from datetime import datetime
 
-# Reuse timezone helper from report_summary
 sys.path.insert(0, os.path.dirname(__file__))
 from report_summary import load_events
+from llm_utils import call_llm, get_llm_endpoints
 
 MAX_REVIEW_EVENTS = 30
 
 
-def _is_anthropic_format(base_url, fmt=None):
-    if fmt and fmt.strip():
-        return fmt.lower().strip() == "anthropic"
-    return "anthropic" in base_url.lower()
-
-
-def _extract_json_from_text(text):
-    if not text:
-        return None
-    decoder = json.JSONDecoder()
-    idx = 0
-    while idx < len(text):
-        brace = text.find('{', idx)
-        if brace == -1:
-            break
-        try:
-            result, _ = decoder.raw_decode(text, brace)
-            return result
-        except json.JSONDecodeError:
-            idx = brace + 1
-    return None
-
-
-def _call_llm(base_url, api_key, model, prompt, fmt=None):
-    import urllib.request
-
-    is_anthropic = _is_anthropic_format(base_url, fmt)
-
-    if is_anthropic:
-        url = f"{base_url}/v1/messages"
-        payload = json.dumps({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        }
-    else:
-        url = f"{base_url}/chat/completions"
-        payload = json.dumps({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-
-    req = urllib.request.Request(url, data=payload, headers=headers)
-    resp = urllib.request.urlopen(req, timeout=60)
-    data = json.loads(resp.read().decode())
-
-    if is_anthropic:
-        text = ""
-        for item in data.get("content", []):
-            if item.get("type") == "text":
-                text = item.get("text", "")
-                break
-    else:
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-    parsed = _extract_json_from_text(text)
-    return parsed
-
-
 def _get_llm_config():
-    api_key = os.environ.get("WATCHDOG_LLM_API_KEY", "")
-    if not api_key:
+    endpoints = get_llm_endpoints()
+    if not endpoints:
         return None
-    return {
-        "api_key": api_key,
-        "base_url": os.environ.get("WATCHDOG_LLM_BASE_URL", "https://api.anthropic.com"),
-        "model": os.environ.get("WATCHDOG_LLM_MODEL", "claude-haiku-4-5-20251001"),
-        "fmt": os.environ.get("WATCHDOG_LLM_FORMAT", ""),
-        "api_key_2": os.environ.get("WATCHDOG_LLM_API_KEY_2", ""),
-        "base_url_2": os.environ.get("WATCHDOG_LLM_BASE_URL_2", "https://api.anthropic.com"),
-        "model_2": os.environ.get("WATCHDOG_LLM_MODEL_2", "claude-haiku-4-5-20251001"),
-        "fmt_2": os.environ.get("WATCHDOG_LLM_FORMAT_2", ""),
-    }
+    return {"endpoints": endpoints}
 
 
 def review_stuck_event(event, config):
@@ -143,20 +65,13 @@ Consider:
 
 Reply in JSON only: {{"verdict": "confirmed" or "false_positive", "reason": "one-line Chinese explanation"}}"""
 
-    try:
-        result = _call_llm(config["base_url"], config["api_key"], config["model"], prompt, fmt=config["fmt"])
-        if result:
-            return result.get("verdict", "confirmed"), result.get("reason", "")
-    except Exception:
-        pass
-
-    if config.get("api_key_2"):
+    for base_url, api_key, model, fmt in config["endpoints"]:
         try:
-            result = _call_llm(config["base_url_2"], config["api_key_2"], config["model_2"], prompt, fmt=config["fmt_2"])
+            result = call_llm(base_url, api_key, model, prompt, fmt=fmt)
             if result:
                 return result.get("verdict", "confirmed"), result.get("reason", "")
         except Exception:
-            pass
+            continue
 
     return "review_failed", "LLM 调用失败"
 
@@ -183,20 +98,13 @@ Re-classify this idle state:
 
 Reply in JSON only: {{"verdict": "confirmed" or "reclassified:decision_needed" or "reclassified:task_complete" or "reclassified:idle_unknown", "reason": "one-line Chinese explanation"}}"""
 
-    try:
-        result = _call_llm(config["base_url"], config["api_key"], config["model"], prompt, fmt=config["fmt"])
-        if result:
-            return result.get("verdict", "confirmed"), result.get("reason", "")
-    except Exception:
-        pass
-
-    if config.get("api_key_2"):
+    for base_url, api_key, model, fmt in config["endpoints"]:
         try:
-            result = _call_llm(config["base_url_2"], config["api_key_2"], config["model_2"], prompt, fmt=config["fmt_2"])
+            result = call_llm(base_url, api_key, model, prompt, fmt=fmt)
             if result:
                 return result.get("verdict", "confirmed"), result.get("reason", "")
         except Exception:
-            pass
+            continue
 
     return "review_failed", "LLM 调用失败"
 

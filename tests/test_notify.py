@@ -930,36 +930,36 @@ class TestFormatDetection(unittest.TestCase):
     """Test LLM API format auto-detection."""
 
     def test_explicit_anthropic(self):
-        from classify_idle import _is_anthropic_format
-        self.assertTrue(_is_anthropic_format("https://any-url.com", fmt="anthropic"))
+        from llm_utils import is_anthropic_format
+        self.assertTrue(is_anthropic_format("https://any-url.com", fmt="anthropic"))
 
     def test_explicit_openai(self):
-        from classify_idle import _is_anthropic_format
-        self.assertFalse(_is_anthropic_format("https://api.anthropic.com", fmt="openai"))
+        from llm_utils import is_anthropic_format
+        self.assertFalse(is_anthropic_format("https://api.anthropic.com", fmt="openai"))
 
     def test_url_anthropic_detected(self):
-        from classify_idle import _is_anthropic_format
-        self.assertTrue(_is_anthropic_format("https://api.minimaxi.com/anthropic"))
+        from llm_utils import is_anthropic_format
+        self.assertTrue(is_anthropic_format("https://api.minimaxi.com/anthropic"))
 
     def test_url_openai_default(self):
-        from classify_idle import _is_anthropic_format
-        self.assertFalse(_is_anthropic_format("https://open.bigmodel.cn/api/coding/paas/v4"))
+        from llm_utils import is_anthropic_format
+        self.assertFalse(is_anthropic_format("https://open.bigmodel.cn/api/coding/paas/v4"))
 
     def test_empty_fmt_uses_url(self):
-        from classify_idle import _is_anthropic_format
-        self.assertTrue(_is_anthropic_format("https://something/anthropic/api", fmt=""))
+        from llm_utils import is_anthropic_format
+        self.assertTrue(is_anthropic_format("https://something/anthropic/api", fmt=""))
 
     def test_none_fmt_uses_url(self):
-        from classify_idle import _is_anthropic_format
-        self.assertTrue(_is_anthropic_format("https://api.anthropic.com", fmt=None))
+        from llm_utils import is_anthropic_format
+        self.assertTrue(is_anthropic_format("https://api.anthropic.com", fmt=None))
 
 
 class TestJsonExtraction(unittest.TestCase):
     """Test JSON extraction from LLM text responses."""
 
     def setUp(self):
-        from classify_idle import _extract_json_from_text
-        self.extract = _extract_json_from_text
+        from llm_utils import extract_json_from_text
+        self.extract = extract_json_from_text
 
     def test_none_input(self):
         self.assertIsNone(self.extract(None))
@@ -1045,8 +1045,8 @@ class TestCallLlmApiConstruction(unittest.TestCase):
     """Test _call_llm builds correct requests for both API formats."""
 
     def setUp(self):
-        from classify_idle import _call_llm
-        self.call_llm = _call_llm
+        from llm_utils import call_llm
+        self.call_llm_fn = call_llm
 
     def test_anthropic_format_url(self):
         """Anthropic format appends /v1/messages."""
@@ -1063,7 +1063,7 @@ class TestCallLlmApiConstruction(unittest.TestCase):
         orig_req = urllib.request.Request
         urllib.request.Request = mock_request
         try:
-            self.call_llm("https://api.minimaxi.com/anthropic", "key", "model", "test", fmt="anthropic")
+            self.call_llm_fn("https://api.minimaxi.com/anthropic", "key", "model", "test", fmt="anthropic")
         except Exception:
             pass
         finally:
@@ -1085,7 +1085,7 @@ class TestCallLlmApiConstruction(unittest.TestCase):
         orig_req = urllib.request.Request
         urllib.request.Request = mock_request
         try:
-            self.call_llm("https://open.bigmodel.cn/api/paas/v4", "key", "model", "test", fmt="openai")
+            self.call_llm_fn("https://open.bigmodel.cn/api/paas/v4", "key", "model", "test", fmt="openai")
         except Exception:
             pass
         finally:
@@ -1127,10 +1127,10 @@ class TestLlmFallbackPath(unittest.TestCase):
             call_count[0] += 1
             if call_count[0] == 1:
                 raise ConnectionError("primary down")
-            return ("task_complete", "done", 0.95, "all tasks finished")
+            return {"category": "task_complete", "summary": "done", "confidence": 0.95, "trigger": "all tasks finished"}
 
-        original = classify_idle._call_llm
-        classify_idle._call_llm = mock_call
+        original = classify_idle.call_llm
+        classify_idle.call_llm = mock_call
         orig_key = os.environ.get("WATCHDOG_LLM_API_KEY")
         orig_key2 = os.environ.get("WATCHDOG_LLM_API_KEY_2")
         try:
@@ -1140,7 +1140,7 @@ class TestLlmFallbackPath(unittest.TestCase):
             self.assertEqual(result, ("task_complete", "done", 0.95, "all tasks finished"))
             self.assertEqual(call_count[0], 2)
         finally:
-            classify_idle._call_llm = original
+            classify_idle.call_llm = original
             if orig_key:
                 os.environ["WATCHDOG_LLM_API_KEY"] = orig_key
             else:
@@ -1156,8 +1156,8 @@ class TestLlmFallbackPath(unittest.TestCase):
         def mock_call(base_url, api_key, model, prompt, fmt=None):
             raise ConnectionError("all down")
 
-        original = classify_idle._call_llm
-        classify_idle._call_llm = mock_call
+        original = classify_idle.call_llm
+        classify_idle.call_llm = mock_call
         orig_key = os.environ.get("WATCHDOG_LLM_API_KEY")
         orig_key2 = os.environ.get("WATCHDOG_LLM_API_KEY_2")
         try:
@@ -1166,7 +1166,7 @@ class TestLlmFallbackPath(unittest.TestCase):
             result = classify_idle.classify_with_llm(["some line"])
             self.assertEqual(result[0], "llm_timeout")
         finally:
-            classify_idle._call_llm = original
+            classify_idle.call_llm = original
             if orig_key:
                 os.environ["WATCHDOG_LLM_API_KEY"] = orig_key
             else:

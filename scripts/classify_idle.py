@@ -23,6 +23,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(__file__))
+from llm_utils import call_llm, get_llm_endpoints
+
 # ── 关键字模式 ──────────────────────────────────────────────────────────────
 # 决策类：Claude 在等用户做非 trivial 的判断（排除 accept edits 等 claude-yes 处理的）
 DECISION_PATTERNS = [
@@ -138,103 +141,14 @@ def classify_by_keywords(lines):
         return "idle_unknown", lines[-3:]
 
 
-def _is_anthropic_format(base_url, fmt=None):
-    """判断 API 格式。优先使用显式 fmt 参数（'anthropic' 或 'openai'），否则从 base URL 推断。"""
-    if fmt and fmt.strip():
-        return fmt.lower().strip() == "anthropic"
-    return "anthropic" in base_url.lower()
-
-
-def _extract_json_from_text(text):
-    """从 LLM 回复中提取 JSON 对象。"""
-    if not text:
-        return None
-    decoder = json.JSONDecoder()
-    idx = 0
-    while idx < len(text):
-        brace = text.find('{', idx)
-        if brace == -1:
-            break
-        try:
-            result, _ = decoder.raw_decode(text, brace)
-            return result
-        except json.JSONDecodeError:
-            idx = brace + 1
-    return None
-
-
-def _call_llm(base_url, api_key, model, prompt, fmt=None):
-    """调用单个 LLM 端点。自动识别 Anthropic/OpenAI 格式。返回 (category, summary, confidence, trigger) 或 None。"""
-    import urllib.request
-
-    is_anthropic = _is_anthropic_format(base_url, fmt)
-
-    if is_anthropic:
-        url = f"{base_url}/v1/messages"
-        payload = json.dumps({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-        }
-    else:
-        url = f"{base_url}/chat/completions"
-        payload = json.dumps({
-            "model": model,
-            "max_tokens": 2000,
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode("utf-8")
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-        }
-
-    req = urllib.request.Request(url, data=payload, headers=headers)
-    resp = urllib.request.urlopen(req, timeout=60)
-    data = json.loads(resp.read().decode())
-
-    # 提取回复文本
-    if is_anthropic:
-        # Anthropic 格式：content 是数组，可能有 thinking 和 text 多个 item
-        text = ""
-        for item in data.get("content", []):
-            if item.get("type") == "text":
-                text = item.get("text", "")
-                break
-    else:
-        # OpenAI 格式：choices[0].message.content
-        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-
-    parsed = _extract_json_from_text(text)
-    if parsed:
-        return (
-            parsed.get("category"),
-            parsed.get("summary", ""),
-            parsed.get("confidence"),
-            parsed.get("trigger", ""),
-        )
-    return None
-
-
 def classify_with_llm(lines):
-    """Use LLM API (primary + fallback) for ambiguous cases.
-    Env vars:
-      WATCHDOG_LLM_API_KEY / WATCHDOG_LLM_BASE_URL / WATCHDOG_LLM_MODEL  (primary)
-      WATCHDOG_LLM_API_KEY_2 / WATCHDOG_LLM_BASE_URL_2 / WATCHDOG_LLM_MODEL_2  (fallback)
-
-    自动识别 Anthropic / OpenAI 兼容格式（根据 base URL 判断）。
+    """Use LLM API (primary + fallback) for classification.
+    Returns (category, summary, confidence, trigger) on success,
+    or ("llm_timeout", ..., None, "") on failure, or None if no API key.
     """
-    api_key = os.environ.get("WATCHDOG_LLM_API_KEY", "")
-    if not api_key:
+    endpoints = get_llm_endpoints()
+    if not endpoints:
         return None
-
-    base_url = os.environ.get("WATCHDOG_LLM_BASE_URL", "https://api.anthropic.com")
-    model = os.environ.get("WATCHDOG_LLM_MODEL", "claude-haiku-4-5-20251001")
-    fmt = os.environ.get("WATCHDOG_LLM_FORMAT", "")
 
     context = "\n".join(lines[-50:])
     prompt = f"""Below is the tail of a Claude Code session. The session has just become idle (paused at the ❯ prompt).
@@ -251,26 +165,18 @@ Reply in JSON only: {{"category": "...", "confidence": 0.0-1.0, "trigger": "the 
 Session output (last 50 effective lines, noise filtered):
 {context}"""
 
-    # Primary endpoint
-    try:
-        result = _call_llm(base_url, api_key, model, prompt, fmt=fmt)
-        if result:
-            return result
-    except Exception:
-        pass
-
-    # Fallback endpoint
-    api_key_2 = os.environ.get("WATCHDOG_LLM_API_KEY_2", "")
-    if api_key_2:
-        base_url_2 = os.environ.get("WATCHDOG_LLM_BASE_URL_2", "https://api.anthropic.com")
-        model_2 = os.environ.get("WATCHDOG_LLM_MODEL_2", "claude-haiku-4-5-20251001")
-        fmt_2 = os.environ.get("WATCHDOG_LLM_FORMAT_2", "")
+    for base_url, api_key, model, fmt in endpoints:
         try:
-            result = _call_llm(base_url_2, api_key_2, model_2, prompt, fmt=fmt_2)
-            if result:
-                return result
+            parsed = call_llm(base_url, api_key, model, prompt, fmt=fmt)
+            if parsed:
+                return (
+                    parsed.get("category"),
+                    parsed.get("summary", ""),
+                    parsed.get("confidence"),
+                    parsed.get("trigger", ""),
+                )
         except Exception:
-            pass
+            continue
 
     return "llm_timeout", "LLM 调用失败（主备均不可用）", None, ""
 

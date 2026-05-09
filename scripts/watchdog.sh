@@ -635,35 +635,41 @@ do_check() {
 # stop_daemon：停止进程
 # mkdir 锁防止重复启动（跨平台原子操作）
 start_daemon() {
-  # 启动前先杀残留进程（防止 launchd KeepAlive 造成的多实例）
+  local plist="$HOME/Library/LaunchAgents/com.claude.watchdog.plist"
+
+  # ── launchd 模式：plist 存在时，只通过 launchd 管理 ──
+  if [ -f "$plist" ]; then
+    # 先 unload（停止旧实例），再 load（启动新实例）
+    launchctl unload "$plist" 2>/dev/null || true
+    sleep 0.5
+    launchctl load "$plist" 2>/dev/null
+    echo "Watchdog started via launchd"
+    return 0
+  fi
+
+  # ── 非 launchd 模式：fork 后台进程 ──
   while pkill -f "watchdog.sh" 2>/dev/null; do sleep 0.3; done
   rm -f "$PID_FILE"
   rm -rf "$LOCK_FILE"
 
-  # 检查是否已有实例运行
   if [ -f "$PID_FILE" ]; then
     local old_pid
     old_pid=$(cat "$PID_FILE")
     if kill -0 "$old_pid" 2>/dev/null; then
       echo "Watchdog already running (pid $old_pid)"
-      echo "Use '$0 stop' first, or 'kill $old_pid'"
       return 1
     fi
     rm -f "$PID_FILE"
   fi
 
-  # 原子锁：mkdir 成功则获得锁，失败则检查是否为残留锁
   if ! mkdir "$LOCK_FILE" 2>/dev/null; then
-    # 检查残留锁：如果有 PID 文件且进程已死，说明是残留锁
     local lock_pid=""
     [ -f "$LOCK_FILE/pid" ] && lock_pid=$(cat "$LOCK_FILE/pid" 2>/dev/null)
     if [ -n "$lock_pid" ] && ! kill -0 "$lock_pid" 2>/dev/null; then
-      log "WARN: stale lock detected (pid $lock_pid not running), removing"
       rm -rf "$LOCK_FILE"
       mkdir "$LOCK_FILE" || { echo "Cannot acquire lock"; return 1; }
     else
       echo "Another watchdog instance is running (lock: $LOCK_FILE)"
-      echo "If stale, remove it: rm -rf $LOCK_FILE"
       return 1
     fi
   fi
@@ -682,9 +688,6 @@ start_daemon() {
   echo $pid > "$PID_FILE"
   echo $pid > "$LOCK_FILE/pid"
   log "Watchdog started (pid $pid), checking every ${SAMPLE_INTERVAL}s"
-
-  # reload launchd，让它跟踪新 PID
-  launchctl load ~/Library/LaunchAgents/com.claude.watchdog.plist 2>/dev/null || true
 
   local count
   count=$(get_claude_sessions | wc -l | tr -d ' ')
@@ -760,7 +763,19 @@ show_status() {
 # launchd 要求进程保持前台运行，这是守护入口点
 # 写入 PID 文件以便 status 命令正确识别
 run_foreground() {
+  # 原子锁：防止 launchd KeepAlive 重启时出现多实例
+  if ! mkdir "$LOCK_FILE" 2>/dev/null; then
+    local lock_pid=""
+    [ -f "$LOCK_FILE/pid" ] && lock_pid=$(cat "$LOCK_FILE/pid" 2>/dev/null)
+    if [ -n "$lock_pid" ] && kill -0 "$lock_pid" 2>/dev/null; then
+      echo "Another instance running (pid $lock_pid), exiting" >&2
+      exit 0
+    fi
+    rm -rf "$LOCK_FILE"
+    mkdir "$LOCK_FILE" || exit 1
+  fi
   echo $$ > "$PID_FILE"
+  echo $$ > "$LOCK_FILE/pid"
   trap 'rm -f "$PID_FILE"; rm -rf "$LOCK_FILE"' EXIT
   log "Watchdog starting in foreground mode (for launchd, pid $$)"
   init_state

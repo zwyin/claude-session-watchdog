@@ -108,7 +108,7 @@ set_state() {
 
 clear_state() {
   local session="$1"
-  rm -f "$STATE_DIR/${session}."*
+  find "$STATE_DIR" -maxdepth 1 -name "${session}.*" -delete 2>/dev/null || true
 }
 
 # ── 事件记录 ─────────────────────────────────────────────────────────────────
@@ -297,7 +297,10 @@ print(ec)
   esac
 
   log "IDLE $label: $session (${duration}min) confidence=$confidence reasoning=$reasoning"
-  log_event "idle_$category" "$session" "$duration" "idle: $label | confidence=$confidence | reasoning=$reasoning | summary=$summary" "none" "$effective_content"
+  # category 可能已带 idle_ 前缀（如 idle_decision），避免双重 idle_idle_
+  local event_name="$category"
+  [[ "$event_name" == idle_* ]] || event_name="idle_$category"
+  log_event "$event_name" "$session" "$duration" "idle: $label | confidence=$confidence | reasoning=$reasoning | summary=$summary" "none" "$effective_content"
   osascript -e "display notification \"$session $label ${duration}min\" with title \"Watchdog: idle\"" 2>/dev/null || true
   # 直接从 tmux 重新抓取末尾输出，保留原始换行（不走 JSON 管道，避免 \n 被展平）
   local last_output

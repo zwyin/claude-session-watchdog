@@ -35,7 +35,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # ── Version ─────────────────────────────────────────────────────────────────
-VERSION="2.0.4"
+VERSION="2.0.5"
 
 # ── 配置参数 ────────────────────────────────────────────────────────────────
 # 所有持久化状态统一放在 ~/.claude/ 目录下
@@ -639,28 +639,24 @@ start_daemon() {
 
   # ── launchd 模式：plist 存在时，只通过 launchd 管理 ──
   if [ -f "$plist" ]; then
-    # 先 unload（停止旧实例），再 load（启动新实例）
-    launchctl unload "$plist" 2>/dev/null || true
-    sleep 0.5
-    launchctl load "$plist" 2>/dev/null
-    echo "Watchdog started via launchd"
-    return 0
+    if ! command -v launchctl >/dev/null 2>&1; then
+      echo "WARNING: plist found but launchctl not available, falling back to fork mode" >&2
+    else
+      launchctl unload "$plist" 2>/dev/null || true
+      sleep 0.5
+      if ! launchctl load "$plist" 2>/dev/null; then
+        echo "ERROR: launchctl load failed" >&2
+        return 1
+      fi
+      echo "Watchdog started via launchd"
+      return 0
+    fi
   fi
 
   # ── 非 launchd 模式：fork 后台进程 ──
   while pkill -f "watchdog.sh" 2>/dev/null; do sleep 0.3; done
   rm -f "$PID_FILE"
   rm -rf "$LOCK_FILE"
-
-  if [ -f "$PID_FILE" ]; then
-    local old_pid
-    old_pid=$(cat "$PID_FILE")
-    if kill -0 "$old_pid" 2>/dev/null; then
-      echo "Watchdog already running (pid $old_pid)"
-      return 1
-    fi
-    rm -f "$PID_FILE"
-  fi
 
   if ! mkdir "$LOCK_FILE" 2>/dev/null; then
     local lock_pid=""
@@ -677,7 +673,7 @@ start_daemon() {
   init_state
 
   (
-    trap 'rm -f "$PID_FILE"; rm -rf "$LOCK_FILE"' EXIT
+    trap 'rm -f "$PID_FILE"' EXIT
     while true; do
       do_check
       sleep "$SAMPLE_INTERVAL"
@@ -696,8 +692,9 @@ start_daemon() {
 
 stop_daemon() {
   # 先 unload launchd，防止 KeepAlive 立刻拉起新进程
-  if launchctl list | grep -q 'com.claude.watchdog' 2>/dev/null; then
-    launchctl unload ~/Library/LaunchAgents/com.claude.watchdog.plist 2>/dev/null || true
+  local plist="$HOME/Library/LaunchAgents/com.claude.watchdog.plist"
+  if [ -f "$plist" ]; then
+    launchctl unload "$plist" 2>/dev/null || true
   fi
   # 杀所有 watchdog 进程（不只是 PID 文件里的那个）
   local count=0
@@ -776,7 +773,7 @@ run_foreground() {
   fi
   echo $$ > "$PID_FILE"
   echo $$ > "$LOCK_FILE/pid"
-  trap 'rm -f "$PID_FILE"; rm -rf "$LOCK_FILE"' EXIT
+  trap 'rm -f "$PID_FILE"' EXIT
   log "Watchdog starting in foreground mode (for launchd, pid $$)"
   init_state
   while true; do

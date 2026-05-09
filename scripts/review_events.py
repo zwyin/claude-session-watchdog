@@ -69,7 +69,7 @@ Reply in JSON only: {{"verdict": "confirmed" or "false_positive", "reason": "one
         try:
             result = call_llm(base_url, api_key, model, prompt, fmt=fmt)
             if result:
-                return result.get("verdict", "confirmed"), result.get("reason", "")
+                return result.get("verdict", "review_failed"), result.get("reason", "")
         except Exception:
             continue
 
@@ -102,7 +102,7 @@ Reply in JSON only: {{"verdict": "confirmed" or "reclassified:decision_needed" o
         try:
             result = call_llm(base_url, api_key, model, prompt, fmt=fmt)
             if result:
-                return result.get("verdict", "confirmed"), result.get("reason", "")
+                return result.get("verdict", "review_failed"), result.get("reason", "")
         except Exception:
             continue
 

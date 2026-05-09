@@ -1100,7 +1100,7 @@ class TestVersionAndConfig(unittest.TestCase):
     def test_version_is_201(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
-        self.assertIn('VERSION="2.0.4"', content)
+        self.assertIn('VERSION="2.0.5"', content)
 
     def test_start_template_updated(self):
         with open(os.path.join(SCRIPT_DIR, "scripts", "notify-templates.json")) as f:
@@ -1255,7 +1255,7 @@ class TestReportSummary(unittest.TestCase):
     def test_version_is_202(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
-        self.assertIn('VERSION="2.0.4"', content)
+        self.assertIn('VERSION="2.0.5"', content)
 
 
 class TestStripNoise(unittest.TestCase):

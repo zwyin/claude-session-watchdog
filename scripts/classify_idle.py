@@ -165,12 +165,16 @@ Reply in JSON only: {{"category": "...", "confidence": 0.0-1.0, "trigger": "the 
 Session output (last 50 effective lines, noise filtered):
 {context}"""
 
+    valid_categories = {"decision_needed", "task_complete", "idle_unknown"}
     for base_url, api_key, model, fmt in endpoints:
         try:
             parsed = call_llm(base_url, api_key, model, prompt, fmt=fmt)
             if parsed:
+                cat = parsed.get("category", "")
+                if cat not in valid_categories:
+                    continue
                 return (
-                    parsed.get("category"),
+                    cat,
                     parsed.get("summary", ""),
                     parsed.get("confidence"),
                     parsed.get("trigger", ""),

@@ -96,15 +96,3 @@ def get_llm_endpoints():
             os.environ.get("WATCHDOG_LLM_FORMAT_2", ""),
         ))
     return endpoints
-
-
-def call_llm_with_fallback(prompt):
-    """Try all configured LLM endpoints. Returns parsed JSON dict or None."""
-    for base_url, api_key, model, fmt in get_llm_endpoints():
-        try:
-            result = call_llm(base_url, api_key, model, prompt, fmt=fmt)
-            if result:
-                return result
-        except Exception:
-            continue
-    return None

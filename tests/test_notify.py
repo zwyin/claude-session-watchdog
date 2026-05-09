@@ -1400,7 +1400,7 @@ class TestReviewEvents(unittest.TestCase):
         events = [
             {"timestamp": "2026-05-07T01:00:00Z", "event": "stuck", "session": "a", "duration_minutes": 10, "notes": "hash unchanged"},
             {"timestamp": "2026-05-07T01:15:00Z", "event": "auto_interrupt", "session": "a", "duration_minutes": 15, "notes": "Ctrl-C"},
-            {"timestamp": "2026-05-07T01:05:00Z", "event": "idle_idle_unknown", "session": "b", "duration_minutes": 5, "notes": "idle"},
+            {"timestamp": "2026-05-07T01:05:00Z", "event": "idle_unknown", "session": "b", "duration_minutes": 5, "notes": "idle"},
             {"timestamp": "2026-05-07T01:06:00Z", "event": "idle_task_complete", "session": "c", "duration_minutes": 5, "notes": "complete"},
         ]
 

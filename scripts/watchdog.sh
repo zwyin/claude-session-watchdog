@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code tmux session watchdog v2.0.2
+# Claude Code tmux session watchdog v2.0.5
 # Monitors all tmux sessions running claude-yes/claude, detects stuck sessions,
 # logs events, sends notifications, and auto-intervenes.
 #
@@ -297,9 +297,13 @@ print(ec)
   esac
 
   log "IDLE $label: $session (${duration}min) confidence=$confidence reasoning=$reasoning"
-  # category 可能已带 idle_ 前缀（如 idle_decision），避免双重 idle_idle_
-  local event_name="$category"
-  [[ "$event_name" == idle_* ]] || event_name="idle_$category"
+  # 映射到 report_summary.py 期望的事件名
+  local event_name
+  case "$category" in
+    decision_needed|ambiguous) event_name="idle_decision" ;;
+    task_complete)              event_name="idle_task_complete" ;;
+    *)                          event_name="idle_unknown" ;;
+  esac
   log_event "$event_name" "$session" "$duration" "idle: $label | confidence=$confidence | reasoning=$reasoning | summary=$summary" "none" "$effective_content"
   osascript -e "display notification \"$session $label ${duration}min\" with title \"Watchdog: idle\"" 2>/dev/null || true
   # 直接从 tmux 重新抓取末尾输出，保留原始换行（不走 JSON 管道，避免 \n 被展平）

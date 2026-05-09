@@ -293,12 +293,12 @@ def main():
     category, context_lines = classify_by_keywords(lines)
 
     summary = "; ".join(context_lines[:2]) if context_lines else ""
-    confidence = "high"
+    confidence = 0.7
     trigger = "; ".join(context_lines[:2]) if context_lines else ""
 
     # 关键字匹配 idle_unknown 时降低置信度
     if category == "idle_unknown":
-        confidence = "low"
+        confidence = 0.3
         trigger = "无关键字匹配"
 
     # Step 2: LLM classification
@@ -319,7 +319,7 @@ def main():
                 trigger = llm_result[3]
         elif llm_only:
             # LLM-only 模式超时时，用关键字结果兜底
-            confidence = "low"
+            confidence = 0.3
             trigger = "LLM 超时，关键字兜底"
 
     output = {

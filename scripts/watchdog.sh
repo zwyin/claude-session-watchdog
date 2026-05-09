@@ -281,7 +281,6 @@ print(ec)
   trigger=$(echo "$parsed" | sed -n '5p')
   effective_content=$(echo "$parsed" | sed -n '6p')
 
-  # LLM 超时时 category 为 llm_timeout，在通知中说明
   local template="idle_unknown"
   local label="空闲（原因不明）"
   case "$category" in
@@ -297,11 +296,6 @@ print(ec)
       template="idle_decision"
       label="需要人工查看（多种状态交叉）"
       [ -n "$summary" ] && summary="[交叉情况] $summary"
-      ;;
-    llm_timeout)
-      template="idle_unknown"
-      label="空闲（LLM 分析超时）"
-      summary="$summary"
       ;;
   esac
 

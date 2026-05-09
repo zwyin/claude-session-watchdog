@@ -114,11 +114,11 @@ Session output (last 50 effective lines, noise filtered):
 
 ## confidence 字段说明
 
-| 来源 | 类型 | 值 |
+| 来源 | 值 | 含义 |
 |------|------|------|
-| LLM 成功 | float | 0.0-1.0（如 0.85、0.95） |
-| 关键字匹配成功 | string | `"high"` |
-| 关键字 idle_unknown | string | `"low"` |
-| LLM 超时，关键字兜底 | string | `"low"` |
+| LLM 成功 | 0.0-1.0 float（如 0.85、0.95） | LLM 自评置信度 |
+| 关键字匹配成功 | 0.7 | 模式匹配，较高把握 |
+| 关键字 idle_unknown | 0.3 | 无模式命中，低把握 |
+| LLM 超时，关键字兜底 | 0.3 | LLM 不可用，低把握 |
 
 `effective_content` 字段包含完整的 50 行有效内容，供 JSONL 审计复盘使用。

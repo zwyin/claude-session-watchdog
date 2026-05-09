@@ -261,25 +261,22 @@ import sys, json
 d = json.load(sys.stdin)
 print(d.get('category','idle_unknown'))
 print(d.get('summary','').replace('\n', ' '))
-ll = d.get('last_lines','').replace('\n', ' ')
-print(ll)
 c = d.get('confidence')
 print(str(c) if c is not None else 'N/A')
 print(d.get('reasoning','').replace('\n', ' '))
 ec = d.get('effective_content','').replace('\n', ' ')
 print(ec)
-" 2>/dev/null) || parsed=$'idle_unknown\n\n\nN/A\n分类失败\n'
+" 2>/dev/null) || parsed=$'idle_unknown\n\nN/A\n分类失败\n'
   if [ -s "$classify_err" ]; then
     log "CLASSIFY_ERROR[$session]: $(head -3 "$classify_err")"
   fi
   rm -f "$classify_err"
   category=$(echo "$parsed" | sed -n '1p')
   summary=$(echo "$parsed" | sed -n '2p')
-  last_lines=$(echo "$parsed" | sed -n '3p')
   local confidence reasoning effective_content
-  confidence=$(echo "$parsed" | sed -n '4p')
-  reasoning=$(echo "$parsed" | sed -n '5p')
-  effective_content=$(echo "$parsed" | sed -n '6p')
+  confidence=$(echo "$parsed" | sed -n '3p')
+  reasoning=$(echo "$parsed" | sed -n '4p')
+  effective_content=$(echo "$parsed" | sed -n '5p')
 
   local template="idle_unknown"
   local label="空闲（原因不明）"

@@ -11,9 +11,9 @@ Reads the last 50 effective lines (noise filtered) of the tmux pane.
 Output (JSON):
   {"category": "decision_needed|task_complete|ambiguous|idle_unknown",
    "confidence": 0.0-1.0 or "high"/"low",
-   "trigger": "key reasoning/evidence phrase or empty",
+   "reasoning": "key reasoning/evidence phrase or empty",
    "summary": "one-line context summary",
-   "last_lines": "last 5 lines of pane content",
+   "last_lines": "last 15 lines of pane content",
    "effective_content": "last 50 effective lines"}
 """
 
@@ -143,7 +143,7 @@ def classify_by_keywords(lines):
 
 def classify_with_llm(lines):
     """Use LLM API (primary + fallback) for classification.
-    Returns (category, summary, confidence, trigger) on success,
+    Returns (category, summary, confidence, reasoning) on success,
     or ("llm_timeout", ..., None, "") on failure, or None if no API key.
     """
     endpoints = get_llm_endpoints()

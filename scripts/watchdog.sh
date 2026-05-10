@@ -80,10 +80,9 @@ get_model_name() {
 }
 
 # ── 日志输出 ─────────────────────────────────────────────────────────────────
-# 双路输出：同时写日志文件和 stdout（launchd 会捕获 stdout）
+# 仅写日志文件（plist 已将 stdout/stderr 重定向到同一文件，避免重复）
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
 # ── 状态管理 ─────────────────────────────────────────────────────────────────
@@ -416,15 +415,15 @@ is_idle_prompt() {
   # 最后一行是纯 ❯ 提示符 → 空闲
   local last_line
   last_line=$(echo "$last_lines" | tail -1)
-  if echo "$last_line" | grep -qE '^\s*❯\s*$'; then
+  if echo "$last_line" 2>/dev/null | grep -qE '^\s*❯\s*$'; then
     return 0
   fi
   # 权限确认、超时、取消提示等明确的等待状态
-  if echo "$last_lines" | grep -qE '(accept edits on|\[超时\]|Esc to cancel|waiting for input)'; then
+  if echo "$last_lines" 2>/dev/null | grep -qE '(accept edits on|\[超时\]|Esc to cancel|waiting for input)'; then
     return 0
   fi
   # 目录状态行（idle prompt 的另一种表现形式）
-  if echo "$last_line" | grep -qE '^\s*目录:'; then
+  if echo "$last_line" 2>/dev/null | grep -qE '^\s*目录:'; then
     return 0
   fi
   return 1

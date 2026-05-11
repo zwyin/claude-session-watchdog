@@ -124,11 +124,11 @@ log_event() {
   fi
   local model
   model=$(get_model_name "$session")
-  # 转义 JSON 特殊字符（反斜杠和双引号），防止破坏 JSON 结构
-  session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  notes=$(printf '%s' "$notes" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  model=$(printf '%s' "$model" | sed 's/\\/\\\\/g; s/"/\\"/g')
-  context=$(printf '%s' "$context" | sed 's/\\/\\\\/g; s/"/\\"/g')
+  # 转义 JSON 特殊字符（反斜杠、双引号、换行），防止破坏 JSON 结构
+  session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"g' | tr '\n\r' '  ')
+  notes=$(printf '%s' "$notes" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
+  model=$(printf '%s' "$model" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
+  context=$(printf '%s' "$context" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
   if [ -n "$context" ]; then
     printf '{"timestamp":"%s","event":"%s","session":"%s","project":"%s","duration_minutes":%s,"model":"%s","phase":"unknown","intervention":"%s","recovered":%s,"notes":"%s","context":"%s"}\n' \
       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

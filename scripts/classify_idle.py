@@ -106,10 +106,10 @@ def capture_last_lines(session, count=50):
 
 def classify_by_keywords(lines):
     """Run keyword matching on lines, return (category, matched_context)."""
-    text = "\n".join(lines)
-
     # Check exclude patterns — simple permission prompts handled by claude-yes
-    has_exclude = any(re.search(pat, text, re.MULTILINE) for pat in EXCLUDE_PATTERNS)
+    # Only check last 5 lines to avoid false-positive match on conversation body
+    last_text = "\n".join(lines[-5:])
+    has_exclude = any(re.search(pat, last_text, re.MULTILINE) for pat in EXCLUDE_PATTERNS)
 
     decision_hits = []
     complete_hits = []

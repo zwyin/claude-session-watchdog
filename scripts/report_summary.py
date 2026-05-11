@@ -77,7 +77,7 @@ def generate_report(events, session_count=0):
         type_counts[evt] += 1
         session_stats[sess][evt] += 1
         dur = e.get("duration_minutes")
-        if dur and evt == "stuck":
+        if dur is not None and evt == "stuck":
             try:
                 durations.append(int(dur))
             except (ValueError, TypeError):

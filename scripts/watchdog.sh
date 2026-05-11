@@ -125,7 +125,7 @@ log_event() {
   local model
   model=$(get_model_name "$session")
   # 转义 JSON 特殊字符（反斜杠、双引号、换行），防止破坏 JSON 结构
-  session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"g' | tr '\n\r' '  ')
+  session=$(printf '%s' "$session" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
   notes=$(printf '%s' "$notes" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
   model=$(printf '%s' "$model" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')
   context=$(printf '%s' "$context" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  ')

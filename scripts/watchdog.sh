@@ -175,12 +175,13 @@ notify_from_template() {
 # ── 会话上下文提取 ─────────────────────────────────────────────────────────
 # 从 tmux pane 中提取可读的状态信息，用于通知内容
 
-# 读取底部 12 行，过滤出 Claude Code 状态栏关键字
+# 读取 Claude Code 状态栏（模型/会话等），过滤分隔线等噪音
 get_session_status_line() {
   local session="$1"
-  tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
-    | grep -E '(模型:|输入:|会话:|目录:|⏵⏵|────)' \
-    | tail -5 || true
+  tmux capture-pane -t "$session" -p -S -20 2>/dev/null \
+    | grep -E '(模型:|输入:|会话:|目录:)' \
+    | sed 's/[[:space:]]*$//' \
+    | head -2 || true
 }
 
 # 读取底部 300 行，去除噪音行，返回最后 20 行有效输出

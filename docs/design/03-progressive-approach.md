@@ -24,7 +24,7 @@ export CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000
 ```
 
 ### 作用
-- 当 GLM 代理的 SSE 响应流中断 5 分钟无任何数据 → 自动中断请求 → Claude Code 自动重试
+- 当 API 代理的 SSE 响应流中断 5 分钟无任何数据 → 自动中断请求 → Claude Code 自动重试
 - 不影响正常的长思考（thinking），因为 thinking 时仍有字节流
 - 每个跑在 tmux 里的 claude 进程都会自动生效
 
@@ -90,7 +90,7 @@ export CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000
 
 - [x] 在 `.zshrc` 中添加 `CLAUDE_ENABLE_STREAM_WATCHDOG=1` 和 `CLAUDE_STREAM_IDLE_TIMEOUT_MS=300000`
 - [x] 外部看门狗脚本实现（v2.0.0：hash + JSONL + token 三路检测）
-- [x] 飞书通知（告警 / 干预 / 恢复 / 启动 / 日报 / 空闲决策 / 空闲完成 / 空闲未知 八种模板）
+- [x] 飞书通知（告警 / 干预 / 恢复 / 启动 / 日报 / 早报 / 晚报 / 空闲决策 / 空闲完成 / 空闲未知 十种模板）
 - [x] 空闲会话分类（关键字 + LLM 语义，v2.0.1）
 - [x] 自动干预（15 分钟 → Ctrl-C + 继续任务）
 - [x] launchctl 开机自启

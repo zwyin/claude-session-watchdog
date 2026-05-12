@@ -99,7 +99,7 @@ class TestRenderTemplate(unittest.TestCase):
 
     def test_render_stuck(self):
         r = render_template("stuck", session="test-sess", duration="12",
-                            date="05-06", time="21:55", status_line="GLM-5.1", last_output="hello")
+                            date="05-06", time="21:55", status_line="claude-sonnet-4-6", last_output="hello")
         self.assertIn("test-sess", r["title"])
         self.assertIn("12", r["body"])
         self.assertEqual(r["color"], "red")
@@ -159,7 +159,7 @@ class TestRenderTemplate(unittest.TestCase):
 
     def test_chinese_content_renders(self):
         r = render_template("stuck", session="测试", duration="30",
-                            date="05-06", time="22:00", status_line="模型: GLM-5.1",
+                            date="05-06", time="22:00", status_line="模型: claude-sonnet-4-6",
                             last_output="输出内容")
         self.assertIn("测试", r["title"])
         self.assertIn("输出内容", r["body"])
@@ -534,13 +534,13 @@ else:
         result = subprocess.run(
             ["python3", "-c", r"""
 import re
-line = '  模型: GLM-5.1 | 输入: 3.2M'
+line = '  模型: claude-sonnet-4-6 | 输入: 3.2M'
 m = re.search(r'模型:\s*([^ |]+(?:\s+[^ |]+)*)', line)
 print(m.group(1).strip() if m else 'NONE')
 """],
             capture_output=True, text=True, timeout=10,
         )
-        self.assertEqual(result.stdout.strip(), "GLM-5.1")
+        self.assertEqual(result.stdout.strip(), "claude-sonnet-4-6")
 
     def test_no_model_field(self):
         result = subprocess.run(
@@ -757,7 +757,7 @@ class TestNotifyPy(unittest.TestCase):
         result = subprocess.run(
             ["python3", NOTIFY_PY, TEMPLATE_FILE, "stuck",
              "session=测试会话", "duration=30", "date=05-06",
-             "time=22:00", "status_line=模型: GLM-5.1", "last_output=输出内容"],
+             "time=22:00", "status_line=模型: claude-sonnet-4-6", "last_output=输出内容"],
             capture_output=True, text=True, timeout=10, env=env,
         )
         self.assertEqual(result.returncode, 0)
@@ -1101,7 +1101,7 @@ class TestCallLlmApiConstruction(unittest.TestCase):
 class TestVersionAndConfig(unittest.TestCase):
     """Test version and config consistency."""
 
-    def test_version_is_201(self):
+    def test_version_current(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
         self.assertIn('VERSION="2.0.5"', content)
@@ -1256,7 +1256,7 @@ class TestReportSummary(unittest.TestCase):
         self.assertIn("tmp", text)
         self.assertIn("空闲 3", text)
 
-    def test_version_is_202(self):
+    def test_start_template_version(self):
         with open(WATCHDOG_SCRIPT) as f:
             content = f.read()
         self.assertIn('VERSION="2.0.5"', content)
@@ -1283,7 +1283,7 @@ class TestStripNoise(unittest.TestCase):
 
     def test_removes_status_bar(self):
         lines = [
-            "模型: GLM-5.1",
+            "模型: claude-sonnet-4-6",
             "输入: 1234 tokens",
             "会话: my-session",
             "目录: /home/user",

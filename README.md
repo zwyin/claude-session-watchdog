@@ -28,7 +28,7 @@ Output resumes              --> Log recovered event
 - **Triple detection** -- screen-content hash (timer-noise filtered), JSONL session-log last record, and output-token stagnation run in parallel; all three must agree before declaring a session stuck
 - **Auto-intervention** -- sends Ctrl-C followed by a continue prompt after 15 minutes of inactivity, with a cooldown period to prevent flapping
 - **Idle classification with LLM** -- keyword-based matching plus optional LLM semantic analysis (primary + fallback endpoints) to classify idle sessions as *decision needed*, *task complete*, or *unknown*
-- **Feishu / Lark notifications** -- HMAC-signed webhook with 8 template types (stuck, intervene, recovered, start, daily, morning report, evening report, idle)
+- **Feishu / Lark notifications** -- HMAC-signed webhook with 10 template types (stuck, intervene, recovered, start, daily, morning report, evening report, idle)
 - **macOS local notifications** -- native `osascript` alerts as a zero-config fallback
 - **Periodic reports** -- morning report (08:00, covers overnight) and evening report (22:00, covers daytime) with per-session breakdowns
 - **Event self-review** -- LLM audits past detection events to surface false positives and tuning suggestions
@@ -46,7 +46,7 @@ Output resumes              --> Log recovered event
 
 ```bash
 # Clone
-git clone https://github.com/your-org/claude-session-watchdog.git
+git clone https://github.com/zwyin/claude-session-watchdog.git
 cd claude-session-watchdog
 
 # Configure notifications (optional -- skip to use macOS-only alerts)
@@ -75,8 +75,9 @@ cp .env.example .env
 | `./scripts/watchdog.sh sessions` | List all Claude sessions (model, tokens, JSONL age) |
 | `./scripts/watchdog.sh health` | Health check (process alive + log freshness) |
 | `./scripts/watchdog.sh log [N]` | Show last N log lines (default 50) |
-| `./scripts/watchdog.sh test-notify` | Send test notifications (all 8 types) |
+| `./scripts/watchdog.sh test-notify` | Send test notifications (all 10 types) |
 | `./scripts/watchdog.sh daily-summary` | Manually send daily report |
+| `./scripts/watchdog.sh review [hours]` | LLM audit of recent detection events (default 12h) |
 
 ## Configuration
 
@@ -165,7 +166,12 @@ State is stored as flat files under `~/.claude/watchdog-state/` -- no database r
 |---|---|
 | `scripts/watchdog.sh` | Main script (detection, intervention, daemon) |
 | `scripts/classify_idle.py` | Idle session classifier (keyword + LLM) |
-| `scripts/notify-templates.json` | Feishu notification templates (8 types) |
+| `scripts/notify.py` | Feishu notification delivery with HMAC signing |
+| `scripts/llm_utils.py` | Shared LLM API call helper (Anthropic + OpenAI formats) |
+| `scripts/review_events.py` | LLM-based review of past detection events |
+| `scripts/report_summary.py` | Period summary statistics for morning/evening reports |
+| `scripts/jsonl_age.py` | JSONL last-record age extraction |
+| `scripts/notify-templates.json` | Feishu notification templates (10 types) |
 | `.env.example` | Configuration template |
 | `~/.claude/watchdog.pid` | Background daemon PID |
 | `~/.claude/watchdog.lock` | Process lock (mkdir-based atomic lock) |

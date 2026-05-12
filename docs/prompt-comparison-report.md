@@ -68,17 +68,17 @@ Reply in JSON only: {"category": "...", "confidence": 0.0-1.0,
 
 | 会话 | 有效行 | 30行 | 50行 | 80行 | 100行 | 150行 | 200行 | 稳定区间 |
 |------|--------|------|------|------|-------|-------|-------|----------|
-| auto_finance | 633 | D | D | D | D | D | D | 全部 |
-| benchmark-tmp | 205 | D | D | D | D | D | D | 全部 |
+| project-finance | 633 | D | D | D | D | D | D | 全部 |
+| project-bench | 205 | D | D | D | D | D | D | 全部 |
 | cli | 375 | C | C | C | C | C | C | 全部 |
 | **context** | 355 | D | D | D | D | **C** | **C** | 30-100 |
 | gps | 1340 | D | C | ? | C | C | C | 50+ |
 | html | 1569 | D | D | C | C | C | C | 30-80 |
-| kwcode | 1167 | D | D | D | D | D | D | 全部 |
-| multi_stats | 1513 | C | C | C | C | C | C | 全部 |
+| project-code | 1167 | D | D | D | D | D | D | 全部 |
+| project-stats | 1513 | C | C | C | C | C | C | 全部 |
 | video | 1015 | D | D | D | D | D | D | 全部 |
-| **watchdog** | 1535 | D | **?** | D | D | D | D | 除50外 |
-| watchdog-dup | 851 | D | D | D | D | D | D | 全部 |
+| **project-watchdog** | 1535 | D | **?** | D | D | D | D | 除50外 |
+| project-watchdog-2 | 851 | D | D | D | D | D | D | 全部 |
 
 D = decision_needed, C = task_complete, ? = idle_unknown
 
@@ -88,21 +88,21 @@ D = decision_needed, C = task_complete, ? = idle_unknown
 
 | 会话 | V1 | V2 | V3 | V3置信度 | V3触发词 | 差异分析 |
 |------|----|----|-----|----------|----------|----------|
-| auto_finance | D | D | D | 0.95 | 这个设计方案看起来合理吗？ | 一致 |
-| **benchmark-tmp** | **C** | **D** | **D** | 0.95 | 你看这个计划是否合理？ | **V1 错误**：被前面完成内容带偏 |
+| project-finance | D | D | D | 0.95 | 这个设计方案看起来合理吗？ | 一致 |
+| **project-bench** | **C** | **D** | **D** | 0.95 | 你看这个计划是否合理？ | **V1 错误**：被前面完成内容带偏 |
 | cli | C | C | C | 0.95 | 全部完成到 v5.0 | 一致 |
 | **context** | **C** | **D** | **D** | 0.95 | 你要不要做这个 pilot | **V1 错误**：被前面完成内容带偏 |
 | gps | D | D | D | 0.95 | 要不要我帮你配一个 GitHub Actions | 一致 |
 | html | ? | C | ? | 0.60 | 子 agent 独立评审 skill 改动 | V3 置信度低，确实模糊 |
-| kwcode | D | D | D | 0.95 | 要我撤销吗？ | 一致 |
-| multi_stats | C | C | C | 0.95 | 项目状态稳定，所有 3 级测试零失败 | 一致 |
+| project-code | D | D | D | 0.95 | 要我撤销吗？ | 一致 |
+| project-stats | C | C | C | 0.95 | 项目状态稳定，所有 3 级测试零失败 | 一致 |
 | video | ? | ? | ? | 0.60 | ✢ Synthesizing… | 一致（执行中） |
-| watchdog | C | D | C | 0.85 | 写一份测试报告给我 | 内容在变 |
-| watchdog-dup | D | D | D | 0.95 | Do you want to proceed? | 一致 |
+| project-watchdog | C | D | C | 0.85 | 写一份测试报告给我 | 内容在变 |
+| project-watchdog-2 | D | D | D | 0.95 | Do you want to proceed? | 一致 |
 
 ### 分歧分析
 
-1. **benchmark-tmp、context**：V1 判 task_complete，V2/V3 判 decision_needed。
+1. **project-bench、context**：V1 判 task_complete，V2/V3 判 decision_needed。
    - 正确答案：decision_needed（Claude 确实在问问题）
    - 原因：V1 没有"只看最后一段"的强调，被窗口前面的完成状态干扰
 
@@ -110,7 +110,7 @@ D = decision_needed, C = task_complete, ? = idle_unknown
    - 实际状态模糊：子 agent 在后台运行，主会话空闲但任务未完全结束
    - V3 的低置信度更准确地反映了这种不确定性
 
-3. **watchdog**：三个版本各不相同。
+3. **project-watchdog**：三个版本各不相同。
    - 该会话内容在测试期间变化，结果不稳定
 
 ### 准确性统计

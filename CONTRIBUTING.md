@@ -4,7 +4,7 @@ Thanks for your interest! This guide covers how to report issues, suggest featur
 
 ## Reporting Bugs
 
-Open a [GitHub Issue](https://github.com/your-org/claude-session-watchdog/issues/new) and include:
+Open a [GitHub Issue](https://github.com/zwyin/claude-session-watchdog/issues/new) and include:
 
 - **Watchdog version**: run `./scripts/watchdog.sh status` or check `VERSION` near the top of `watchdog.sh`
 - **macOS version**: `sw_vers` output
@@ -21,7 +21,7 @@ Open a GitHub Issue with the label `enhancement`. Describe the use case and why 
 
 ```bash
 # Clone
-git clone https://github.com/your-org/claude-session-watchdog.git
+git clone https://github.com/zwyin/claude-session-watchdog.git
 cd claude-session-watchdog
 
 # Configure (optional -- only needed for notification / LLM features)

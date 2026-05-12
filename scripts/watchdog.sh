@@ -790,7 +790,7 @@ run_foreground() {
   done
 }
 
-# ── 测试通知（发送 8 种类型的样例通知）────────────────────────────────────
+# ── 测试通知（发送 10 种类型的样例通知）────────────────────────────────────
 test_notify() {
   echo "Sending test notifications (10 types)..."
   local ts="[测试]"
@@ -816,7 +816,7 @@ test_notify() {
     "date=$(date '+%Y-%m-%d') ${ts}" "stuck=2" "interrupt=2" \
     "recovered=1" "avg_duration=12" "idle_total=3" \
     "idle_complete=0" "idle_decision=0" \
-    "session_details=**kwcode** · 挂起 1 · 恢复 1\n**gps** · 空闲 2\n**html** · 挂起 1 · 正常" \
+    "session_details=**project-code** · 挂起 1 · 恢复 1\n**project-gps** · 空闲 2\n**project-html** · 挂起 1 · 正常" \
     "session_count=6"
   sleep 1
   # Evening report with sample data
@@ -824,7 +824,7 @@ test_notify() {
     "date=$(date '+%Y-%m-%d') ${ts}" "stuck=4" "interrupt=4" \
     "recovered=3" "avg_duration=11" "idle_complete=8" \
     "idle_decision=1" \
-    "session_details=**tmp** · 挂起 2 · 恢复 2 · 任务完成 3\n**gps** · 挂起 1 · 恢复 1 · 任务完成 5\n**kwcode** · 挂起 1 · 恢复 1" \
+    "session_details=**project-tmp** · 挂起 2 · 恢复 2 · 任务完成 3\n**project-gps** · 挂起 1 · 恢复 1 · 任务完成 5\n**project-code** · 挂起 1 · 恢复 1" \
     "session_count=6"
   sleep 1
   # Idle classification test notifications

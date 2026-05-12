@@ -34,17 +34,17 @@
 
 | 会话 | 30行 | 50行 | 80行 | 100行 | 150行 | 200行 | 稳定区间 |
 |------|------|------|------|-------|-------|-------|----------|
-| auto_finance | D | D | D | D | D | D | 全部 |
-| benchmark-tmp | D | D | D | D | D | D | 全部 |
+| project-finance | D | D | D | D | D | D | 全部 |
+| project-bench | D | D | D | D | D | D | 全部 |
 | cli | C | C | C | C | C | C | 全部 |
 | **context** | **D** | **D** | **D** | **D** | **C** | **C** | 30-100 |
 | gps | C | C | C | C | C | C | 全部 |
 | html | C | C | C | **?** | C | C | 30-80 |
-| kwcode | C | C | C | C | C | C | 全部 |
-| multi_stats | C | C | C | C | C | C | 全部 |
+| project-code | C | C | C | C | C | C | 全部 |
+| project-stats | C | C | C | C | C | C | 全部 |
 | video | D | D | D | D | D | D | 全部 |
-| **watchdog** | **D** | **?** | **D** | **C** | **C** | **C** | 30-80 |
-| watchdog-dup | C | C | C | C | C | C | 全部 |
+| **project-watchdog** | **D** | **?** | **D** | **C** | **C** | **C** | 30-80 |
+| project-watchdog-2 | C | C | C | C | C | C | 全部 |
 
 D = decision_needed（等待人工决策）
 C = task_complete（任务完成，等待验收）
@@ -57,7 +57,7 @@ C = task_complete（任务完成，等待验收）
 
 ### 2. 超过 80-100 行会被历史干扰
 - `context`：30-100 行正确判定为 decision_needed，150/200 行被更早的完成状态覆盖，错误判为 task_complete
-- `watchdog`：30-80 行正确判定为 decision_needed，100 行以后被历史干扰变成 task_complete
+- `project-watchdog`：30-80 行正确判定为 decision_needed，100 行以后被历史干扰变成 task_complete
 - `html`：30-80 行正确判定为 task_complete，100 行时被干扰判为 unknown
 
 原因：大窗口包含多个交互回合（前面"做完了"→ 中间"还有问题"→ 最后"卡住了"），LLM 被前面的内容带偏。
@@ -72,10 +72,10 @@ C = task_complete（任务完成，等待验收）
 
 | 会话 | 关键字(50行) | LLM(50行) | 差异 |
 |------|-------------|-----------|------|
-| auto_finance | unknown | decision_needed | 关键字漏判 |
+| project-finance | unknown | decision_needed | 关键字漏判 |
 | gps | unknown | task_complete | 关键字漏判 |
 | html | unknown | task_complete | 关键字漏判 |
-| kwcode | unknown | task_complete | 关键字漏判 |
+| project-code | unknown | task_complete | 关键字漏判 |
 
 关键字匹配对 8 个会话中 4 个判为 unknown，LLM 全部正确分类。说明当前关键字覆盖面不足，建议 unknown 时也调 LLM。
 

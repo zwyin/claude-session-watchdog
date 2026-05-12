@@ -1,0 +1,52 @@
+{
+  "stuck": {
+    "title": "[看门狗] 会话无响应: {session}",
+    "color": "red",
+    "body": "**会话:** {session}\n**无响应时长:** {duration} 分钟\n**检出时间:** {date} {time}\n\n**运行状态**\n{status_line}\n\n**末尾输出**\n{last_output}"
+  },
+  "intervene": {
+    "title": "[看门狗] 自动恢复: {session}",
+    "color": "orange",
+    "body": "**会话:** {session}\n**挂起时长:** {duration} 分钟\n**恢复时间:** {date} {time}\n**动作:** {action}\n\n**运行状态**\n{status_line}\n\n**末尾输出**\n{last_output}"
+  },
+  "recovered": {
+    "title": "[看门狗] 已恢复响应: {session}",
+    "color": "green",
+    "body": "**会话:** {session}\n**中断时长:** {duration} 分钟\n**恢复时间:** {date} {time}"
+  },
+  "start": {
+    "title": "[看门狗] 服务启动 v{version}",
+    "color": "blue",
+    "body": "**版本:** {version}\n**监控会话数:** {session_count}\n**启动时间:** {date} {time}\n\n**检测方式**\n- 屏幕输出哈希（去除计时器干扰）\n- JSONL 会话日志最后记录时间\n- 输出 token 数停滞检测\n\n**卡住检测**\n- 告警: 10 分钟无有效输出\n- 自动恢复: 15 分钟 → Ctrl-C + 继续任务\n- 深度检测: 哈希变化但 JSONL 停滞 + token 不变 → 仍判定卡住\n- 冷却期: 10 分钟\n\n**空闲分类（10 分钟触发）**\n- 关键字匹配 → decision_needed / task_complete / idle_unknown\n- 模糊时调 LLM 语义分析（主用 + 备用双端点）\n- 仅通知不干预\n\n**日报:** 早报 08:00（覆盖夜间 22:00—08:00）· 晚报 22:00（覆盖白天 08:00—22:00）"
+  },
+  "daily": {
+    "title": "[看门狗] 日报 — {date}",
+    "color": "purple",
+    "body": "**{date} 当日**\n无响应 **{today_stuck}** 次 · 自动恢复 **{today_interrupt}** 次 · 已恢复 **{today_recovered}** 次\n平均挂起 **{avg_duration}** 分钟 · 共 **{today_events}** 事件\n\n**累计**\n**{total_events}** 事件 · **{total_stuck}** 次无响应 · **{total_interrupt}** 次自动恢复 · **{total_recovered}** 次已恢复\n\n当前监控 **{session_count}** 个会话"
+  },
+  "morning_report": {
+    "title": "[看门狗] 早报 — {date}",
+    "color": "purple",
+    "body": "**{date} 夜间（22:00 — 08:00）**\n无响应 **{stuck}** 次 · 自动恢复 **{interrupt}** 次 · 已恢复 **{recovered}** 次\n空闲 **{idle_total}** 次 · 平均挂起 **{avg_duration}** 分钟\n\n**会话明细**\n{session_details}\n\n当前监控 **{session_count}** 个会话"
+  },
+  "evening_report": {
+    "title": "[看门狗] 晚报 — {date}",
+    "color": "purple",
+    "body": "**{date} 白天（08:00 — 22:00）**\n无响应 **{stuck}** 次 · 自动恢复 **{interrupt}** 次 · 已恢复 **{recovered}** 次\n任务完成 **{idle_complete}** 次 · 等待决策 **{idle_decision}** 次 · 平均挂起 **{avg_duration}** 分钟\n\n**会话明细**\n{session_details}\n\n当前监控 **{session_count}** 个会话"
+  },
+  "idle_decision": {
+    "title": "[看门狗] 等待决策: {session}",
+    "color": "yellow",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 需要人工确认或决策\n**置信度:** {confidence}\n**判断依据:** {reasoning}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+  },
+  "idle_complete": {
+    "title": "[看门狗] 任务完成: {session}",
+    "color": "green",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 任务已完成，等待验收\n**置信度:** {confidence}\n**判断依据:** {reasoning}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+  },
+  "idle_unknown": {
+    "title": "[看门狗] 会话空闲: {session}",
+    "color": "blue",
+    "body": "**会话:** {session}\n**空闲时长:** {duration} 分钟\n**检出时间:** {date} {time}\n**状态:** 空闲，无法自动判断原因\n**置信度:** {confidence}\n**判断依据:** {reasoning}\n\n**上下文摘要**\n{summary}\n\n**末尾输出**\n{last_output}"
+  }
+}

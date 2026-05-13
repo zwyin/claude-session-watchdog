@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>claude-session-watchdog 项目导览</title>
+<style>
+/* ── CSS Variables ── */
+:root {
+  --accent: #7c6aef;
+  --accent2: #a78bfa;
+  --bg: #0f0f14;
+  --bg2: #16161d;
+  --bg3: #1e1e28;
+  --text: #e4e4ec;
+  --text2: #9ca3af;
+  --border: #2a2a3a;
+  --card-bg: #181822;
+  --code-bg: #12121a;
+  --sidebar-bg: #111118;
+  --table-row-alt: #1a1a26;
+  --green: #34d399;
+  --yellow: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
+  --orange: #fb923c;
+  --topbar-h: 52px;
+  --sidebar-w: 240px;
+  --radius: 8px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+html.light {
+  --bg: #f5f5f7;
+  --bg2: #eeeef2;
+  --bg3: #e5e5eb;
+  --text: #1a1a2e;
+  --text2: #6b7280;
+  --border: #d1d5db;
+  --card-bg: #ffffff;
+  --code-bg: #f0f0f5;
+  --sidebar-bg: #f9f9fb;
+  --table-row-alt: #f3f3f8;
+  --shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  overflow-x: hidden;
+}
+
+/* ── Top Bar ── */
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: var(--topbar-h);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  z-index: 100;
+}
+.topbar-title {
+  font-size: 16px; font-weight: 600;
+  color: var(--accent2);
+}
+.topbar-actions { display: flex; align-items: center; gap: 12px; }
+.theme-btn {
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px;
+  padding: 6px 14px; cursor: pointer; font-size: 13px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.theme-btn:hover { border-color: var(--accent); }
+.hamburger {
+  display: none;
+  background: var(--bg3); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px;
+  padding: 6px 10px; cursor: pointer; font-size: 18px; line-height: 1;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  position: fixed; top: var(--topbar-h); left: 0;
+  width: var(--sidebar-w);
+  height: calc(100vh - var(--topbar-h));
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 16px 0;
+  z-index: 90;
+  transition: transform 0.3s ease;
+}
+.sidebar.hidden { transform: translateX(-100%); }
+.nav-item {
+  display: block; width: 100%;
+  padding: 10px 20px;
+  background: none; border: none;
+  color: var(--text2); font-size: 14px;
+  text-align: left; cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  line-height: 1.5;
+}
+.nav-item:hover { color: var(--text); background: var(--bg3); }
+.nav-item.active {
+  color: var(--accent2); background: var(--bg3);
+  border-left: 3px solid var(--accent);
+  padding-left: 17px;
+}
+
+/* ── Main Content ── */
+.main {
+  margin-left: var(--sidebar-w);
+  margin-top: var(--topbar-h);
+  padding: 32px 40px 60px;
+  max-width: 900px;
+}
+.section { display: none; }
+.section.active { display: block; }
+
+/* ── Typography ── */
+h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: var(--text); }
+h2 { font-size: 22px; font-weight: 600; margin: 28px 0 12px; color: var(--accent2); }
+h3 { font-size: 18px; font-weight: 600; margin: 20px 0 10px; color: var(--text); }
+p { margin-bottom: 14px; color: var(--text); }
+.subtitle { color: var(--text2); font-size: 15px; margin-bottom: 20px; }
+
+/* ── Cards ── */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.card-accent {
+  border-left: 4px solid var(--accent);
+}
+.card-green { border-left-color: var(--green); }
+.card-yellow { border-left-color: var(--yellow); }
+.card-blue { border-left-color: var(--blue); }
+.card-red { border-left-color: var(--red); }
+.card-orange { border-left-color: var(--orange); }
+.card-label {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  color: var(--accent2); margin-bottom: 8px; letter-spacing: 0.5px;
+}
+
+/* ── Analogy Card ── */
+.analogy {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin: 16px 0;
+  display: flex; align-items: flex-start; gap: 12px;
+}
+.analogy-icon {
+  font-size: 28px; line-height: 1; flex-shrink: 0; margin-top: 2px;
+}
+.analogy-text { font-size: 15px; }
+.analogy-text strong { color: var(--accent2); }
+
+/* ── Code Blocks ── */
+.code-block {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin: 12px 0 16px;
+  overflow-x: auto;
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+  font-size: 13px; line-height: 1.6;
+  color: var(--text);
+}
+.code-cite {
+  font-size: 11px; color: var(--text2); margin-top: 6px;
+  font-style: italic;
+}
+
+/* ── Tables ── */
+.table-wrap {
+  overflow-x: auto; margin: 12px 0 16px;
+}
+table {
+  width: 100%; border-collapse: collapse;
+  font-size: 14px;
+}
+th, td {
+  padding: 10px 14px; text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  background: var(--bg3); font-weight: 600; color: var(--accent2);
+  font-size: 13px;
+}
+tr:nth-child(even) td { background: var(--table-row-alt); }
+
+/* ── Flow Diagram ── */
+.flow {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 0; margin: 20px 0;
+}
+.flow-row {
+  display: flex; align-items: center; gap: 0; flex-wrap: wrap;
+  justify-content: center;
+}
+.flow-box {
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 16px;
+  font-size: 13px; white-space: nowrap;
+  color: var(--text);
+}
+.flow-box.highlight {
+  border-color: var(--accent);
+  background: var(--card-bg);
+  color: var(--accent2); font-weight: 600;
+}
+.flow-arrow {
+  color: var(--accent2); font-size: 18px;
+  margin: 0 6px; flex-shrink: 0;
+}
+.flow-arrow-down {
+  color: var(--accent2); font-size: 18px;
+  margin: 6px 0;
+}
+.flow-label {
+  font-size: 11px; color: var(--text2);
+  margin-top: 2px;
+}
+
+/* ── Expandable ── */
+.expandable {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin: 10px 0;
+  overflow: hidden;
+}
+.expand-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg3);
+  cursor: pointer; font-size: 14px; font-weight: 500;
+  color: var(--text);
+  user-select: none;
+}
+.expand-header:hover { background: var(--bg2); }
+.expand-arrow {
+  transition: transform 0.2s; font-size: 12px; color: var(--accent2);
+}
+.expand-arrow.open { transform: rotate(90deg); }
+.expand-body {
+  max-height: 0; overflow: hidden;
+  transition: max-height 0.3s ease;
+  padding: 0 16px;
+  background: var(--card-bg);
+}
+.expand-body.open {
+  max-height: 800px;
+  padding: 16px;
+}
+
+/* ── Stats Row ── */
+.stats-row {
+  display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0;
+}
+.stat-card {
+  flex: 1; min-width: 120px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px; text-align: center;
+  box-shadow: var(--shadow);
+}
+.stat-num {
+  font-size: 28px; font-weight: 700;
+  color: var(--accent2);
+  line-height: 1.2;
+}
+.stat-label {
+  font-size: 12px; color: var(--text2);
+  margin-top: 4px;
+}
+
+/* ── Badge ── */
+.badge {
+  display: inline-block;
+  padding: 2px 10px; border-radius: 12px;
+  font-size: 12px; font-weight: 600;
+}
+.badge-green { background: rgba(52,211,153,0.15); color: var(--green); }
+.badge-yellow { background: rgba(251,191,36,0.15); color: var(--yellow); }
+.badge-blue { background: rgba(96,165,250,0.15); color: var(--blue); }
+.badge-red { background: rgba(248,113,113,0.15); color: var(--red); }
+.badge-purple { background: rgba(167,139,250,0.15); color: var(--accent2); }
+
+/* ── Quiz ── */
+.quiz-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px; margin-bottom: 16px;
+}
+.quiz-q {
+  font-weight: 600; margin-bottom: 12px; font-size: 15px;
+}
+.quiz-options { display: flex; flex-direction: column; gap: 8px; }
+.quiz-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg3); border: 1px solid var(--border);
+  border-radius: 6px; cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-size: 14px;
+}
+.quiz-opt:hover:not(.disabled) { border-color: var(--accent); }
+.quiz-opt.disabled { cursor: default; opacity: 0.85; }
+.quiz-opt.correct {
+  border-color: var(--green); background: rgba(52,211,153,0.08);
+}
+.quiz-opt.wrong {
+  border-color: var(--red); background: rgba(248,113,113,0.08);
+}
+.quiz-opt .opt-letter {
+  flex-shrink: 0; width: 24px; height: 24px;
+  border-radius: 50%; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 600;
+  border: 1px solid var(--border);
+}
+.quiz-opt.correct .opt-letter { background: var(--green); color: #000; border-color: var(--green); }
+.quiz-opt.wrong .opt-letter { background: var(--red); color: #fff; border-color: var(--red); }
+.quiz-explain {
+  margin-top: 10px; padding: 10px 14px;
+  border-radius: 6px; font-size: 13px;
+  display: none;
+}
+.quiz-explain.show { display: block; }
+.quiz-explain.correct-msg { background: rgba(52,211,153,0.1); color: var(--green); }
+.quiz-explain.wrong-msg { background: rgba(248,113,113,0.1); color: var(--red); }
+.quiz-score {
+  text-align: center; font-size: 20px; font-weight: 700;
+  color: var(--accent2); margin: 20px 0;
+  padding: 20px; background: var(--bg3); border-radius: var(--radius);
+}
+
+/* ── Tech Tags ── */
+.tag-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 14px; }
+.tag {
+  display: inline-block; padding: 3px 12px;
+  background: rgba(124,106,239,0.12); color: var(--accent2);
+  border-radius: 14px; font-size: 12px; font-weight: 500;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .hamburger { display: block; }
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.show { transform: translateX(0); }
+  .main { margin-left: 0; padding: 20px 16px 40px; }
+  .stats-row { gap: 8px; }
+  .stat-card { min-width: 90px; padding: 12px; }
+  .stat-num { font-size: 22px; }
+  .flow-row { gap: 4px; }
+  .flow-box { padding: 6px 10px; font-size: 12px; }
+}
+
+/* ── Print ── */
+@media print {
+  .topbar, .sidebar, .hamburger { display: none !important; }
+  .main { margin: 0; padding: 20px; }
+  .section { display: block !important; page-break-inside: avoid; margin-bottom: 30px; }
+  body { background: #fff; color: #000; }
+  .card, .quiz-card { border: 1px solid #ccc; box-shadow: none; }
+  .code-block { border: 1px solid #ccc; }
+}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="topbar" id="topbar"></div>
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar"></div>
+
+<!-- Main Content -->
+<div class="main" id="main"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════════════════════════
+
+var SECTIONS = [
+  { id: 'guide',    label: '使用指南',  icon: '\u{1F4D6}' },
+  { id: 'overview', label: '项目概览',  icon: '\u{1F441}' },
+  { id: 'arch',     label: '架构设计',  icon: '\u{1F3D7}' },
+  { id: 'detect',   label: '检测机制',  icon: '\u{1F50D}' },
+  { id: 'intervene',label: '干预通知',  icon: '\u{1F6E1}' },
+  { id: 'idle',     label: '空闲分类',  icon: '\u{1F916}' },
+  { id: 'compare',  label: '方案对比',  icon: '⚖' },
+  { id: 'summary',  label: '总结测验',  icon: '\u{1F3AF}' }
+];
+
+var QUIZ_DATA = [
+  {
+    q: '1. 三路检测包含哪三个信号？',
+    opts: ['A: CPU / 内存 / 磁盘', 'B: 屏幕哈希 / JSONL 日志 / token 数', 'C: 网络延迟 / 响应时间 / 错误率', 'D: 进程状态 / 线程数 / 文件句柄'],
+    answer: 1,
+    explain: '三路检测分别是屏幕输出哈希（md5）、JSONL 会话日志最后记录时间、输出 token 数停滞检测。三者全部一致才判定卡住。'
+  },
+  {
+    q: '2. 自动干预使用什么方式恢复会话？',
+    opts: ['A: 杀掉进程', 'B: 重启 tmux', 'C: Ctrl-C + 继续消息', 'D: 发送 SIGKILL'],
+    answer: 2,
+    explain: '干预方式是向 tmux 会话发送 Ctrl-C 中断当前操作，然后输入"继续"消息，这样保留了会话上下文，是非破坏性恢复。'
+  },
+  {
+    q: '3. 空闲分类的第一步是什么？',
+    opts: ['A: 直接调用 LLM', 'B: 关键字匹配', 'C: 随机判断', 'D: 人工确认'],
+    answer: 1,
+    explain: '默认模式下先进行关键字正则匹配（决策类 / 完成类），匹配到"决策"或"完成"即可直接分类；模糊或无法判断时才调用 LLM 语义分析。'
+  },
+  {
+    q: '4. 飞书通知使用什么安全机制？',
+    opts: ['A: API Key', 'B: OAuth2', 'C: HMAC 签名', 'D: JWT'],
+    answer: 2,
+    explain: '飞书 Webhook 使用 HMAC-SHA256 签名验证，每次请求用密钥对消息体签名，接收方校验签名确保消息未被篡改，类似信封蜡封的效果。'
+  },
+  {
+    q: '5. 干预冷却期是多长？',
+    opts: ['A: 5 分钟', 'B: 10 分钟', 'C: 15 分钟', 'D: 30 分钟'],
+    answer: 1,
+    explain: 'INTERVENE_COOLDOWN=600（10 分钟），防止对同一会话频繁执行干预操作。冷却期内即使检测到卡住也不会重复发送 Ctrl-C。'
+  }
+];
+
+// ══════════════════════════════════════════════════════════════════════════
+// THEME
+// ══════════════════════════════════════════════════════════════════════════
+
+function applyTheme(light) {
+  if (light) {
+    document.documentElement.classList.add('light');
+  } else {
+    document.documentElement.classList.remove('light');
+  }
+  try { localStorage.setItem('watchdog-theme', light ? 'light' : 'dark'); } catch(e) {}
+}
+
+function loadTheme() {
+  try {
+    var t = localStorage.getItem('watchdog-theme');
+    if (t === 'light') return true;
+    if (t === 'dark') return false;
+  } catch(e) {}
+  return false;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// DOM HELPERS
+// ══════════════════════════════════════════════════════════════════════════
+
+function ce(tag, className, text) {
+  var el = document.createElement(tag);
+  if (className) el.className = className;
+  if (text !== undefined && text !== null) el.textContent = text;
+  return el;
+}
+
+function elAppend(parent, tag, className, text) {
+  var el = ce(tag, className, text);
+  parent.appendChild(el);
+  return el;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// BUILD TOPBAR
+// ══════════════════════════════════════════════════════════════════════════
+
+function buildTopbar() {
+  var bar = document.getElementById('topbar');
+
+  var left = ce('div');
+  left.style.display = 'flex';
+  left.style.alignItems = 'center';
+  left.style.gap = '12px';
+
+  var ham = ce('button', 'hamburger', '☰');
+  ham.addEventListener('click', function() {
+    var sb = document.getElementById('sidebar');
+    sb.classList.toggle('show');
+  });
+  left.appendChild(ham);
+
+  var title = ce('span', 'topbar-title', 'claude-session-watchdog 导览');
+  left.appendChild(title);
+  bar.appendChild(left);
+
+  var actions = ce('div', 'topbar-actions');
+  var btn = ce('button', 'theme-btn', '');
+  btn.id = 'theme-toggle';
+  btn.textContent = loadTheme() ? '☀ 浅色' : '☾ 深色';
+  btn.addEventListener('click', function() {
+    var isLight = document.documentElement.classList.contains('light');
+    applyTheme(!isLight);
+    btn.textContent = !isLight ? '☀ 浅色' : '☾ 深色';
+  });
+  actions.appendChild(btn);
+  bar.appendChild(actions);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// BUILD SIDEBAR
+// ══════════════════════════════════════════════════════════════════════════
+
+function buildSidebar() {
+  var sb = document.getElementById('sidebar');
+  for (var i = 0; i < SECTIONS.length; i++) {
+    (function(idx) {
+      var s = SECTIONS[idx];
+      var btn = ce('button', 'nav-item', s.icon + '  ' + s.label);
+      btn.setAttribute('data-section', s.id);
+      if (idx === 0) btn.classList.add('active');
+      btn.addEventListener('click', function() {
+        navigateTo(s.id);
+        sb.classList.remove('show');
+      });
+      sb.appendChild(btn);
+    })(i);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════════════════════
+
+function navigateTo(id) {
+  var sections = document.querySelectorAll('.section');
+  for (var i = 0; i < sections.length; i++) {
+    sections[i].classList.remove('active');
+  }
+  var target = document.getElementById('section-' + id);
+  if (target) target.classList.add('active');
+
+  var navs = document.querySelectorAll('.nav-item');
+  for (var j = 0; j < navs.length; j++) {
+    navs[j].classList.remove('active');
+    if (navs[j].getAttribute('data-section') === id) {
+      navs[j].classList.add('active');
+    }
+  }
+  window.scrollTo(0, 0);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// EXPANDABLE HELPER
+// ══════════════════════════════════════════════════════════════════════════
+
+function makeExpandable(parent, titleText, bodyBuilder) {
+  var wrap = ce('div', 'expandable');
+  var header = ce('div', 'expand-header');
+  var label = ce('span', '', titleText);
+  var arrow = ce('span', 'expand-arrow', '▶');
+  header.appendChild(label);
+  header.appendChild(arrow);
+  wrap.appendChild(header);
+
+  var body = ce('div', 'expand-body');
+  bodyBuilder(body);
+  wrap.appendChild(body);
+
+  header.addEventListener('click', function() {
+    body.classList.toggle('open');
+    arrow.classList.toggle('open');
+  });
+  parent.appendChild(wrap);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// QUIZ BUILDER
+// ══════════════════════════════════════════════════════════════════════════
+
+var quizScore = 0;
+var quizAnswered = 0;
+
+function buildQuiz(parent) {
+  quizScore = 0;
+  quizAnswered = 0;
+
+  elAppend(parent, 'h2', '', '\u{1F4DD} 测验：检验你的理解');
+
+  for (var i = 0; i < QUIZ_DATA.length; i++) {
+    buildQuizQuestion(parent, QUIZ_DATA[i], i);
+  }
+
+  var scoreDiv = ce('div', 'quiz-score');
+  scoreDiv.id = 'quiz-score';
+  scoreDiv.textContent = '完成所有题目后查看得分';
+  scoreDiv.style.display = 'none';
+  parent.appendChild(scoreDiv);
+}
+
+function buildQuizQuestion(parent, data, index) {
+  var card = ce('div', 'quiz-card');
+  var qEl = ce('div', 'quiz-q', data.q);
+  card.appendChild(qEl);
+
+  var optsWrap = ce('div', 'quiz-options');
+
+  for (var i = 0; i < data.opts.length; i++) {
+    (function(optIdx) {
+      var opt = ce('div', 'quiz-opt');
+      var letter = ce('span', 'opt-letter', data.opts[optIdx].charAt(0));
+      var text = ce('span', '', data.opts[optIdx].substring(3));
+      opt.appendChild(letter);
+      opt.appendChild(text);
+      opt.setAttribute('data-correct', optIdx === data.answer ? '1' : '0');
+
+      opt.addEventListener('click', function() {
+        if (opt.classList.contains('disabled')) return;
+        var allOpts = optsWrap.querySelectorAll('.quiz-opt');
+        for (var k = 0; k < allOpts.length; k++) {
+          allOpts[k].classList.add('disabled');
+          if (allOpts[k].getAttribute('data-correct') === '1') {
+            allOpts[k].classList.add('correct');
+          }
+        }
+        var isCorrect = opt.getAttribute('data-correct') === '1';
+        if (isCorrect) {
+          opt.classList.add('correct');
+          quizScore++;
+        } else {
+          opt.classList.add('wrong');
+        }
+        quizAnswered++;
+
+        var explain = ce('div', 'quiz-explain show');
+        explain.classList.add(isCorrect ? 'correct-msg' : 'wrong-msg');
+        explain.textContent = (isCorrect ? '✔ 正确！' : '✘ 错误。') + ' ' + data.explain;
+        card.appendChild(explain);
+
+        if (quizAnswered === QUIZ_DATA.length) {
+          var sd = document.getElementById('quiz-score');
+          sd.style.display = 'block';
+          sd.textContent = '\u{1F3C6} 测验得分：' + quizScore + ' / ' + QUIZ_DATA.length;
+        }
+      });
+
+      optsWrap.appendChild(opt);
+    })(i);
+  }
+
+  card.appendChild(optsWrap);
+  parent.appendChild(card);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// CODE BLOCK HELPER
+// ══════════════════════════════════════════════════════════════════════════
+
+function makeCodeBlock(parent, code, cite) {
+  var block = ce('div', 'code-block');
+  block.style.whiteSpace = 'pre';
+  block.textContent = code;
+  parent.appendChild(block);
+  if (cite) {
+    var c = ce('div', 'code-cite', cite);
+    parent.appendChild(c);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SECTION BUILDERS
+// ══════════════════════════════════════════════════════════════════════════
+
+function buildSection0(parent) {
+  elAppend(parent, 'h1', '', '\u{1F4D6} 使用指南');
+  elAppend(parent, 'p', 'subtitle', '如何使用这份交互式项目导览');
+
+  elAppend(parent, 'h2', '', '欢迎');
+  elAppend(parent, 'p', '', '这份交互式导览将带你深入了解 claude-session-watchdog 项目 —— 一个自动监控 Claude Code tmux 会话、检测卡住并自动恢复的看门狗工具。');
+
+  elAppend(parent, 'h2', '', '导航方式');
+
+  var navCard = ce('div', 'card card-accent');
+  var items = [
+    '\u{1F4D1} 左侧导航栏：点击任意章节标题快速跳转',
+    '\u{2630} 移动端：点击左上角菜单按钮展开导航',
+    '\u{25B6} 可展开区域：点击标题展开详细内容',
+    '\u{1F3AF} 最后章节包含 5 道测验题，检验你的理解',
+    '\u{2600}☾ 右上角按钮切换深色/浅色主题，设置会自动保存'
+  ];
+  for (var i = 0; i < items.length; i++) {
+    var item = ce('div', '');
+    item.style.padding = '6px 0';
+    item.style.borderBottom = '1px solid var(--border)';
+    item.textContent = items[i];
+    if (i === items.length - 1) item.style.borderBottom = 'none';
+    navCard.appendChild(item);
+  }
+  parent.appendChild(navCard);
+
+  elAppend(parent, 'h2', '', '章节概要');
+  var descs = [
+    ['项目概览', '项目定位、技术栈、关键数字'],
+    ['架构设计', '模块关系、数据流、状态文件'],
+    ['检测机制', '三路检测原理、深度检测、配置参数'],
+    ['干预通知', '自动恢复、飞书通知、日报系统'],
+    ['空闲分类', '关键字匹配、LLM 语义分析、噪音过滤'],
+    ['方案对比', '与替代方案的比较、独特优势'],
+    ['总结测验', '创新总结、快速开始、测验题']
+  ];
+  for (var j = 0; j < descs.length; j++) {
+    var row = ce('div', '');
+    row.style.display = 'flex';
+    row.style.justifyContent = 'space-between';
+    row.style.padding = '8px 0';
+    row.style.borderBottom = '1px solid var(--border)';
+    var left = ce('span', '', (j+1) + '. ' + descs[j][0]);
+    left.style.fontWeight = '500';
+    var right = ce('span', '', descs[j][1]);
+    right.style.color = 'var(--text2)';
+    right.style.fontSize = '13px';
+    row.appendChild(left);
+    row.appendChild(right);
+    parent.appendChild(row);
+  }
+}
+
+function buildSection1(parent) {
+  elAppend(parent, 'h1', '', '\u{1F441} 项目概览');
+  elAppend(parent, 'p', 'subtitle', 'Claude Code tmux 会话的自动监控与恢复工具');
+
+  // Analogy
+  var analogy = ce('div', 'analogy');
+  elAppend(analogy, 'span', 'analogy-icon', '\u{1F43E}');
+  var atext = ce('div', 'analogy-text');
+  atext.textContent = '';
+  var astrong = ce('strong', '', '类比理解：');
+  atext.appendChild(astrong);
+  atext.appendChild(document.createTextNode('看门狗就像一位不知疲倦的哨兵，定期巡视（每 15 秒采样一次）你的 Claude Code 会话。发现异常时先报告（通知），情况严重时果断处理（自动干预），事后还会写巡逻日志（日报）。'));
+  analogy.appendChild(atext);
+  parent.appendChild(analogy);
+
+  // Stats
+  elAppend(parent, 'h2', '', '关键数字');
+  var statsRow = ce('div', 'stats-row');
+
+  var statsData = [
+    ['971', '行主脚本'],
+    ['1,953', '行总代码'],
+    ['10', '种通知模板'],
+    ['v2.0.5', '当前版本']
+  ];
+  for (var i = 0; i < statsData.length; i++) {
+    var sc = ce('div', 'stat-card');
+    elAppend(sc, 'div', 'stat-num', statsData[i][0]);
+    elAppend(sc, 'div', 'stat-label', statsData[i][1]);
+    statsRow.appendChild(sc);
+  }
+  parent.appendChild(statsRow);
+
+  // Tech stack
+  elAppend(parent, 'h2', '', '技术栈');
+  var tagRow = ce('div', 'tag-row');
+  var tags = ['Bash', 'Python 3 标准库', 'tmux', 'md5sum', 'osascript', '飞书 Webhook', 'LLM API'];
+  for (var j = 0; j < tags.length; j++) {
+    elAppend(tagRow, 'span', 'tag', tags[j]);
+  }
+  parent.appendChild(tagRow);
+
+  elAppend(parent, 'p', '', '整个项目仅依赖 Bash 和 Python 3 标准库，无需安装第三方包。Python 部分仅使用 os, json, re, subprocess, sys, urllib 等内置模块，部署零门槛。');
+
+  // File structure
+  elAppend(parent, 'h2', '', '文件结构');
+
+  var filesTable = ce('div', 'table-wrap');
+  var table = ce('table', '');
+  var thead = ce('thead', '');
+  var tr = ce('tr', '');
+  elAppend(tr, 'th', '', '文件');
+  elAppend(tr, 'th', '', '行数');
+  elAppend(tr, 'th', '', '职责');
+  thead.appendChild(tr);
+  table.appendChild(thead);
+
+  var tbody = ce('tbody', '');
+  var rows = [
+    ['scripts/watchdog.sh', '971', '主循环：采样、检测、干预、日报'],
+    ['scripts/classify_idle.py', '255', '空闲会话分类（关键字 + LLM）'],
+    ['scripts/llm_utils.py', '98', 'LLM 调用工具（双端点回退）'],
+    ['scripts/notify.py', '107', '飞书 Webhook + macOS 通知'],
+    ['scripts/jsonl_age.py', '93', 'JSONL 日志时间检测'],
+    ['scripts/report_summary.py', '163', '日报/早报/晚报生成'],
+    ['scripts/review_events.py', '214', '事件日志审查'],
+    ['scripts/notify-templates.json', '52', '10 种通知模板定义']
+  ];
+  for (var k = 0; k < rows.length; k++) {
+    tr = ce('tr', '');
+    elAppend(tr, 'td', '', rows[k][0]);
+    elAppend(tr, 'td', '', rows[k][1]);
+    elAppend(tr, 'td', '', rows[k][2]);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  filesTable.appendChild(table);
+  parent.appendChild(filesTable);
+
+  // What it does
+  elAppend(parent, 'h2', '', '核心能力');
+
+  var cards = [
+    ['card card-green', '检测', '三路信号同时监测：屏幕哈希、JSONL 日志、token 数，全部停滞才判定卡住'],
+    ['card card-orange', '干预', '15 分钟未恢复自动发送 Ctrl-C + "继续"，非破坏性保留上下文'],
+    ['card card-blue', '分类', '关键字正则优先，模糊时调 LLM 语义分析，区分等待决策/任务完成/未知'],
+    ['card card-accent', '通知', '飞书 HMAC 签名 Webhook + macOS 本地通知，早报 08:00 + 晚报 22:00']
+  ];
+  for (var m = 0; m < cards.length; m++) {
+    var card = ce('div', cards[m][0]);
+    elAppend(card, 'div', 'card-label', cards[m][1]);
+    elAppend(card, 'p', '', cards[m][2]);
+    parent.appendChild(card);
+  }
+}
+
+function buildSection2(parent) {
+  elAppend(parent, 'h1', '', '\u{1F3D7} 架构设计');
+  elAppend(parent, 'p', 'subtitle', '模块关系、数据流和状态管理');
+
+  // Architecture diagram
+  elAppend(parent, 'h2', '', '模块调用关系');
+
+  var archFlow = ce('div', 'flow');
+  var row1 = ce('div', 'flow-row');
+  elAppend(row1, 'div', 'flow-box highlight', 'watchdog.sh');
+  elAppend(row1, 'span', 'flow-arrow', '→');
+  elAppend(row1, 'div', 'flow-box', 'classify_idle.py');
+  archFlow.appendChild(row1);
+
+  var arrow1 = ce('div', '');
+  arrow1.style.textAlign = 'center';
+  elAppend(arrow1, 'span', 'flow-arrow-down', '↓');
+  archFlow.appendChild(arrow1);
+
+  var row2 = ce('div', 'flow-row');
+  elAppend(row2, 'div', 'flow-box', 'classify_idle.py');
+  elAppend(row2, 'span', 'flow-arrow', '→ imports');
+  elAppend(row2, 'div', 'flow-box', 'llm_utils.py');
+  archFlow.appendChild(row2);
+
+  var arrow2 = ce('div', '');
+  arrow2.style.textAlign = 'center';
+  elAppend(arrow2, 'span', 'flow-arrow-down', '↓');
+  arrow2.appendChild(ce('div', 'flow-label', 'watchdog.sh 调用子进程'));
+  archFlow.appendChild(arrow2);
+
+  var row3 = ce('div', 'flow-row');
+  elAppend(row3, 'div', 'flow-box', 'notify.py');
+  elAppend(row3, 'span', 'flow-arrow', '←');
+  elAppend(row3, 'div', 'flow-box', 'jsonl_age.py');
+  archFlow.appendChild(row3);
+
+  parent.appendChild(archFlow);
+
+  elAppend(parent, 'p', '', 'watchdog.sh 是主循环（Bash），通过子进程方式调用 Python 工具脚本。classify_idle.py 导入 llm_utils.py 进行 LLM 调用。notify.py 负责所有通知发送，读取 notify-templates.json 中的模板。');
+
+  // Data flow
+  elAppend(parent, 'h2', '', '数据流');
+
+  var analogy2 = ce('div', 'analogy');
+  elAppend(analogy2, 'span', 'analogy-icon', '\u{1F3AD}');
+  var atext2 = ce('div', 'analogy-text');
+  elAppend(atext2, 'strong', '', '类比理解：');
+  atext2.appendChild(document.createTextNode('三路检测就像三重验票 —— 三道关卡全部亮红灯才认定"有问题"，任何一道亮绿灯都说明会话还在活跃。'));
+  analogy2.appendChild(atext2);
+  parent.appendChild(analogy2);
+
+  var dataFlow = ce('div', 'flow');
+  var dr1 = ce('div', 'flow-row');
+  elAppend(dr1, 'div', 'flow-box highlight', 'tmux capture');
+  elAppend(dr1, 'span', 'flow-arrow', '→');
+  elAppend(dr1, 'div', 'flow-box', 'hash + JSONL + token');
+  elAppend(dr1, 'span', 'flow-arrow', '→');
+  elAppend(dr1, 'div', 'flow-box', '三路检测');
+  elAppend(dr1, 'span', 'flow-arrow', '→');
+  elAppend(dr1, 'div', 'flow-box', '分类');
+  dataFlow.appendChild(dr1);
+
+  var da1 = ce('div', '');
+  da1.style.textAlign = 'center';
+  elAppend(da1, 'span', 'flow-arrow-down', '↓');
+  dataFlow.appendChild(da1);
+
+  var dr2 = ce('div', 'flow-row');
+  elAppend(dr2, 'div', 'flow-box', '通知 (notify.py)');
+  elAppend(dr2, 'span', 'flow-arrow', '←');
+  elAppend(dr2, 'div', 'flow-box highlight', '干预 (Ctrl-C)');
+  dataFlow.appendChild(dr2);
+
+  parent.appendChild(dataFlow);
+
+  // State files
+  elAppend(parent, 'h2', '', '状态文件');
+
+  var stateTable = ce('div', 'table-wrap');
+  var stable = ce('table', '');
+  var sthead = ce('thead', '');
+  var str = ce('tr', '');
+  elAppend(str, 'th', '', '路径');
+  elAppend(str, 'th', '', '用途');
+  sthead.appendChild(str);
+  stable.appendChild(sthead);
+
+  var stbody = ce('tbody', '');
+  var srows = [
+    ['~/.claude/session-events.jsonl', 'stuck/recovered 事件日志'],
+    ['~/.claude/watchdog.pid', '守护进程 PID'],
+    ['~/.claude/watchdog.lock', '进程锁（mkdir 原子操作）'],
+    ['~/.claude/watchdog.log', '运行日志'],
+    ['~/.claude/watchdog-state/', '各 session 采样状态目录']
+  ];
+  for (var i = 0; i < srows.length; i++) {
+    str = ce('tr', '');
+    elAppend(str, 'td', '', srows[i][0]);
+    elAppend(str, 'td', '', srows[i][1]);
+    stbody.appendChild(str);
+  }
+  stable.appendChild(stbody);
+  stateTable.appendChild(stable);
+  parent.appendChild(stateTable);
+
+  elAppend(parent, 'p', '', '所有持久化状态统一存放在 ~/.claude/ 目录下。进程锁使用 mkdir 原子操作实现，避免多实例同时运行。');
+
+  // Expandable: sampling loop
+  makeExpandable(parent, '主循环采样流程详解', function(body) {
+    var steps = [
+      '每 15 秒（SAMPLE_INTERVAL）遍历所有运行 claude 的 tmux 会话',
+      '对每个会话执行 tmux capture-pane 获取屏幕内容',
+      '计算屏幕内容 MD5 哈希（去除计时器噪音）',
+      '调用 jsonl_age.py 检查 JSONL 日志最后记录时间',
+      '比较输出 token 数是否停滞',
+      '三路信号综合判断：是否卡住？是否空闲？',
+      '根据判断结果执行对应动作（通知 / 干预 / 分类 / 记录）'
+    ];
+    for (var i = 0; i < steps.length; i++) {
+      var d = ce('div', '');
+      d.style.padding = '6px 0';
+      d.style.borderBottom = '1px solid var(--border)';
+      d.textContent = (i+1) + '. ' + steps[i];
+      body.appendChild(d);
+    }
+  });
+}
+
+function buildSection3(parent) {
+  elAppend(parent, 'h1', '', '\u{1F50D} 检测机制');
+  elAppend(parent, 'p', 'subtitle', '三路信号检测、深度检测与配置参数');
+
+  // Three-way detection
+  elAppend(parent, 'h2', '', '三路检测');
+
+  var analogy = ce('div', 'analogy');
+  elAppend(analogy, 'span', 'analogy-icon', '\u{1F511}');
+  var atext = ce('div', 'analogy-text');
+  elAppend(atext, 'strong', '', '类比理解：');
+  atext.appendChild(document.createTextNode('屏幕哈希就像指纹 —— 内容相同则指纹相同。三路检测就像三重验票，三个检票员都确认"这人没动过"才放行干预。'));
+  analogy.appendChild(atext);
+  parent.appendChild(analogy);
+
+  // Three cards
+  var dets = [
+    ['card card-accent', '第一路：屏幕哈希 (MD5)', '对 tmux capture-pane 的输出计算 MD5 哈希。特别之处在于会先去除计时器等周期性变化的噪音，只保留实质内容。连续采样哈希相同 = 内容未变。'],
+    ['card card-blue', '第二路：JSONL 日志', '检查 ~/.claude/session-events.jsonl 的最后一条记录时间。如果 JSONL 日志长时间没有新记录写入，说明会话内部已停止活动。'],
+    ['card card-green', '第三路：Token 数停滞', '监控输出 token 数是否停滞不变。即使屏幕内容偶尔变化（如计时器），但 token 数不增长，说明没有实质输出。']
+  ];
+  for (var i = 0; i < dets.length; i++) {
+    var card = ce('div', dets[i][0]);
+    elAppend(card, 'div', 'card-label', dets[i][1]);
+    elAppend(card, 'p', '', dets[i][2]);
+    parent.appendChild(card);
+  }
+
+  elAppend(parent, 'h3', '', '三路一致原则');
+  elAppend(parent, 'p', '', '三路信号必须全部一致才判定卡住。任何一路显示活跃（哈希变化、JSONL 有新记录、或 token 数增长），都不算卡住。这极大降低了误报率。');
+
+  // Deep detection
+  elAppend(parent, 'h2', '', '深度检测');
+  elAppend(parent, 'p', '', '除了三路全部停滞的基本检测外，还有一种"深度检测"场景：哈希在变化（屏幕内容有变动），但 JSONL 停滞且 token 数不变。这种情况也判定为卡住，因为屏幕变化可能是噪音（计时器闪烁等），实质上没有产出。');
+
+  // Config
+  elAppend(parent, 'h2', '', '配置参数');
+
+  var cfgTable = ce('div', 'table-wrap');
+  var ctable = ce('table', '');
+  var cthead = ce('thead', '');
+  var ctr = ce('tr', '');
+  elAppend(ctr, 'th', '', '参数');
+  elAppend(ctr, 'th', '', '默认值');
+  elAppend(ctr, 'th', '', '说明');
+  cthead.appendChild(ctr);
+  ctable.appendChild(cthead);
+
+  var ctbody = ce('tbody', '');
+  var cfgs = [
+    ['SAMPLE_INTERVAL', '15 秒', '采样间隔'],
+    ['STUCK_THRESHOLD', '600 秒 (10 分钟)', '无变化判定卡住 → 发送通知'],
+    ['INTERVENE_THRESHOLD', '900 秒 (15 分钟)', '无变化判定深度卡住 → 自动干预'],
+    ['INTERVENE_COOLDOWN', '600 秒 (10 分钟)', '干预冷却期，防止频繁重试'],
+    ['JSONL_STALE_THRESHOLD', '600 秒 (10 分钟)', 'JSONL 日志无新记录阈值'],
+    ['IDLE_CLASSIFY_THRESHOLD', '600 秒 (10 分钟)', '空闲多久触发分类通知']
+  ];
+  for (var j = 0; j < cfgs.length; j++) {
+    ctr = ce('tr', '');
+    elAppend(ctr, 'td', '', cfgs[j][0]);
+    elAppend(ctr, 'td', '', cfgs[j][1]);
+    elAppend(ctr, 'td', '', cfgs[j][2]);
+    ctbody.appendChild(ctr);
+  }
+  ctable.appendChild(ctbody);
+  cfgTable.appendChild(ctable);
+  parent.appendChild(cfgTable);
+
+  // Code example
+  elAppend(parent, 'h2', '', '源码示例：配置参数定义');
+  makeCodeBlock(parent,
+    'SAMPLE_INTERVAL=15         # 采样间隔（秒）\n' +
+    'STUCK_THRESHOLD=600        # 无变化判定卡住 → 通知（600s = 10 分钟）\n' +
+    'INTERVENE_THRESHOLD=900    # 无变化判定深度卡住 → 自动干预（900s = 15 分钟）\n' +
+    'INTERVENE_COOLDOWN=600     # 干预冷却期，防止频繁重试（600s = 10 分钟）\n' +
+    'DAILY_SUMMARY_HOUR=22      # 晚报发送时间（22:00）\n' +
+    'MORNING_SUMMARY_HOUR=08    # 早报发送时间（08:00）\n' +
+    'JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值\n' +
+    'IDLE_CLASSIFY_THRESHOLD=600  # 空闲多久后触发分类通知',
+    '— 源自 scripts/watchdog.sh:48-55'
+  );
+
+  // Detection flow
+  elAppend(parent, 'h2', '', '检测判定流程');
+
+  makeExpandable(parent, '查看完整判定逻辑', function(body) {
+    var logic = [
+      '1. 哈希变化 ∧ JSONL 活跃 ∧ token 增长 → 正常运行',
+      '2. 哈希不变 ∧ JSONL 停滞 ∧ token 不变 ∧ < 10min → 继续观察',
+      '3. 哈希不变 ∧ JSONL 停滞 ∧ token 不变 ∧ ≥ 10min → 判定卡住，发送通知',
+      '4. 哈希不变 ∧ JSONL 停滞 ∧ token 不变 ∧ ≥ 15min → 深度卡住，自动干预',
+      '5. 哈希变化 ∧ JSONL 停滞 ∧ token 不变 → 深度检测：仍判定卡住',
+      '6. 任何一路显示活跃 → 不判定卡住'
+    ];
+    for (var i = 0; i < logic.length; i++) {
+      var d = ce('div', '');
+      d.style.padding = '6px 0';
+      d.style.borderBottom = '1px solid var(--border)';
+      d.style.fontSize = '14px';
+      d.textContent = logic[i];
+      body.appendChild(d);
+    }
+  });
+}
+
+function buildSection4(parent) {
+  elAppend(parent, 'h1', '', '\u{1F6E1} 干预与通知');
+  elAppend(parent, 'p', 'subtitle', '自动恢复机制、飞书通知和日报系统');
+
+  // Intervention
+  elAppend(parent, 'h2', '', '自动干预');
+
+  var analogy = ce('div', 'analogy');
+  elAppend(analogy, 'span', 'analogy-icon', '\u{1F44B}');
+  var atext = ce('div', 'analogy-text');
+  elAppend(atext, 'strong', '', '类比理解：');
+  atext.appendChild(document.createTextNode('Ctrl-C 中断就像拍拍同事肩膀说"嘿，你是不是卡住了？要不要继续？"。不会关掉他的电脑（杀进程），只是温柔地提醒一下。'));
+  analogy.appendChild(atext);
+  parent.appendChild(analogy);
+
+  var intCard = ce('div', 'card card-orange');
+  elAppend(intCard, 'div', 'card-label', '干预流程');
+  var intSteps = [
+    '卡住 15 分钟（INTERVENE_THRESHOLD=900s）→ 触发自动干预',
+    '向 tmux 会话发送 Ctrl-C 键码（0x03），中断当前操作',
+    '等待 2 秒后，输入"继续"消息',
+    '进入 10 分钟冷却期（INTERVENE_COOLDOWN），防止重复干预',
+    '冷却期结束后，如果仍然卡住，可以再次干预'
+  ];
+  for (var i = 0; i < intSteps.length; i++) {
+    var step = ce('div', '');
+    step.style.padding = '6px 0';
+    step.style.borderBottom = '1px solid var(--border)';
+    step.textContent = intSteps[i];
+    intCard.appendChild(step);
+  }
+  parent.appendChild(intCard);
+
+  elAppend(parent, 'p', '', '关键设计：干预是非破坏性的。Ctrl-C 只是中断当前操作，不会终止进程。会话上下文、已完成的编辑、已写入的文件全部保留。这比杀掉进程重来的方案安全得多。');
+
+  // Notification
+  elAppend(parent, 'h2', '', '通知系统');
+
+  var analogy2 = ce('div', 'analogy');
+  elAppend(analogy2, 'span', 'analogy-icon', '\u{1F4EC}');
+  var atext2 = ce('div', 'analogy-text');
+  elAppend(atext2, 'strong', '', '类比理解：');
+  atext2.appendChild(document.createTextNode('HMAC 签名就像信封上的蜡封 —— 用只有你和你朋友知道的印章密封，收信人验证蜡封完整就能确认信件未被篡改。'));
+  analogy2.appendChild(atext2);
+  parent.appendChild(analogy2);
+
+  // Notification channels
+  elAppend(parent, 'h3', '', '两个通知通道');
+
+  var channels = [
+    ['card card-accent', '飞书 Webhook', '通过 HMAC-SHA256 签名的 HTTP POST 请求发送富文本消息。支持彩色标签（红/橙/绿/蓝/紫），包含会话名、时长、状态等详细信息。需在 .env 中配置 FEISHU_WEBHOOK 和 FEISHU_SECRET。'],
+    ['card card-blue', 'macOS 本地通知', '使用 osascript 调用系统原生通知中心。无需任何配置，开箱即用。适合本地开发场景作为飞书通知的补充。']
+  ];
+  for (var j = 0; j < channels.length; j++) {
+    var card = ce('div', channels[j][0]);
+    elAppend(card, 'div', 'card-label', channels[j][1]);
+    elAppend(card, 'p', '', channels[j][2]);
+    parent.appendChild(card);
+  }
+
+  // Templates
+  elAppend(parent, 'h3', '', '10 种通知模板');
+
+  var tmplTable = ce('div', 'table-wrap');
+  var ttable = ce('table', '');
+  var tthead = ce('thead', '');
+  var ttr = ce('tr', '');
+  elAppend(ttr, 'th', '', '模板名');
+  elAppend(ttr, 'th', '', '颜色');
+  elAppend(ttr, 'th', '', '触发场景');
+  tthead.appendChild(ttr);
+  ttable.appendChild(tthead);
+
+  var ttbody = ce('tbody', '');
+  var tmpls = [
+    ['stuck', '红色', '会话无响应（10 分钟）'],
+    ['intervene', '橙色', '自动恢复执行（15 分钟）'],
+    ['recovered', '绿色', '会话恢复响应'],
+    ['start', '蓝色', '看门狗服务启动'],
+    ['daily', '紫色', '每日汇总'],
+    ['morning_report', '紫色', '早报（08:00）'],
+    ['evening_report', '紫色', '晚报（22:00）'],
+    ['idle_decision', '黄色', '空闲分类：等待决策'],
+    ['idle_complete', '绿色', '空闲分类：任务完成'],
+    ['idle_unknown', '蓝色', '空闲分类：状态不明']
+  ];
+  for (var k = 0; k < tmpls.length; k++) {
+    ttr = ce('tr', '');
+    elAppend(ttr, 'td', '', tmpls[k][0]);
+    var colorTd = ce('td', '');
+    var badge = ce('span', 'badge');
+    badge.textContent = tmpls[k][1];
+    var colorMap = {'红色': 'badge-red', '橙色': 'badge-yellow', '绿色': 'badge-green', '蓝色': 'badge-blue', '紫色': 'badge-purple', '黄色': 'badge-yellow'};
+    badge.classList.add(colorMap[tmpls[k][1]] || 'badge-purple');
+    colorTd.appendChild(badge);
+    ttr.appendChild(colorTd);
+    elAppend(ttr, 'td', '', tmpls[k][2]);
+    ttbody.appendChild(ttr);
+  }
+  ttable.appendChild(ttbody);
+  tmplTable.appendChild(ttable);
+  parent.appendChild(tmplTable);
+
+  // Daily reports
+  elAppend(parent, 'h3', '', '日报系统');
+  var reportCard = ce('div', 'card card-accent');
+  elAppend(reportCard, 'p', '', '早报（08:00）：汇总夜间 22:00—08:00 的所有事件，包括无响应次数、自动恢复次数、空闲统计、平均挂起时长和会话明细。');
+  elAppend(reportCard, 'p', '', '晚报（22:00）：汇总白天 08:00—22:00 的所有事件，额外包含任务完成次数和等待决策次数，帮助你回顾一天的产出。');
+  parent.appendChild(reportCard);
+}
+
+function buildSection5(parent) {
+  elAppend(parent, 'h1', '', '\u{1F916} 空闲分类');
+  elAppend(parent, 'p', 'subtitle', '关键字匹配 + LLM 语义分析的双层分类策略');
+
+  var analogy = ce('div', 'analogy');
+  elAppend(analogy, 'span', 'analogy-icon', '\u{1F9D1}‍⚖');
+  var atext = ce('div', 'analogy-text');
+  elAppend(atext, 'strong', '', '类比理解：');
+  atext.appendChild(document.createTextNode('空闲分类就像一位智能助手判断上下文 —— 先快速扫一眼关键字（"你觉得""已完成"），如果一眼就能判断就不再深入；如果模糊不清，再仔细读上下文理解语义，做出精准判断。'));
+  analogy.appendChild(atext);
+  parent.appendChild(analogy);
+
+  // Classification flow
+  elAppend(parent, 'h2', '', '分类流程');
+
+  var clsFlow = ce('div', 'flow');
+  var r1 = ce('div', 'flow-row');
+  elAppend(r1, 'div', 'flow-box highlight', 'capture_last_lines(50)');
+  elAppend(r1, 'span', 'flow-arrow', '→');
+  elAppend(r1, 'div', 'flow-box', '_strip_noise()');
+  elAppend(r1, 'span', 'flow-arrow', '→');
+  elAppend(r1, 'div', 'flow-box highlight', '关键字匹配');
+  clsFlow.appendChild(r1);
+
+  var a1 = ce('div', '');
+  a1.style.textAlign = 'center';
+  elAppend(a1, 'span', 'flow-arrow-down', '↓');
+  a1.appendChild(ce('div', 'flow-label', '模糊或无法判断'));
+  clsFlow.appendChild(a1);
+
+  var r2 = ce('div', 'flow-row');
+  elAppend(r2, 'div', 'flow-box highlight', 'LLM 语义分析');
+  elAppend(r2, 'span', 'flow-arrow', '→');
+  elAppend(r2, 'div', 'flow-box', '输出分类结果');
+  clsFlow.appendChild(r2);
+
+  parent.appendChild(clsFlow);
+
+  // Step 1: Keyword
+  elAppend(parent, 'h2', '', '第一步：关键字匹配');
+
+  elAppend(parent, 'p', '', '使用正则表达式匹配屏幕输出中的关键字模式。分为三类：');
+
+  var kwTable = ce('div', 'table-wrap');
+  var kwtable = ce('table', '');
+  var kwthead = ce('thead', '');
+  var kwtr = ce('tr', '');
+  elAppend(kwtr, 'th', '', '类别');
+  elAppend(kwtr, 'th', '', '匹配模式示例');
+  elAppend(kwtr, 'th', '', '分类结果');
+  kwthead.appendChild(kwtr);
+  kwtable.appendChild(kwthead);
+
+  var kwtbody = ce('tbody', '');
+  var kwRows = [
+    ['决策类', '"你觉得""你认为""选择.*方案""是否需要""should I""what do you think"', 'decision_needed'],
+    ['完成类', '"已经完成""已实现""请查看""请测试""ready for review"', 'task_complete'],
+    ['排除类', '"accept edits on""Allow""Yes/No"', '跳过（claude-yes 自动处理）']
+  ];
+  for (var i = 0; i < kwRows.length; i++) {
+    kwtr = ce('tr', '');
+    elAppend(kwtr, 'td', '', kwRows[i][0]);
+    elAppend(kwtr, 'td', '', kwRows[i][1]);
+    elAppend(kwtr, 'td', '', kwRows[i][2]);
+    kwtbody.appendChild(kwtr);
+  }
+  kwtable.appendChild(kwtbody);
+  kwTable.appendChild(kwtable);
+  parent.appendChild(kwTable);
+
+  // Noise filtering
+  makeExpandable(parent, '噪音过滤：_strip_noise() 详解', function(body) {
+    elAppend(body, 'p', '', 'capture_last_lines() 取 50 行有效内容前，会先用 _strip_noise() 过滤以下噪音：');
+    var noises = [
+      '─═━\- 纯分隔线（3 个字符以上）',
+      '┌│║ 等 box drawing 字符',
+      '空行',
+      '❯ 纯提示符',
+      '"模型:""输入:""会话:""目录:" 状态栏',
+      '⏵⏵ 状态指示',
+      '... 省略号行',
+      '── 长分隔线'
+    ];
+    for (var i = 0; i < noises.length; i++) {
+      var d = ce('div', '');
+      d.style.padding = '4px 0';
+      d.style.fontSize = '14px';
+      d.textContent = '• ' + noises[i];
+      body.appendChild(d);
+    }
+  });
+
+  // Step 2: LLM
+  elAppend(parent, 'h2', '', '第二步：LLM 语义分析');
+
+  elAppend(parent, 'p', '', '当关键字匹配结果为 ambiguous（同时命中决策和完成）或 idle_unknown（均未命中）时，调用 LLM API 进行语义分析。');
+
+  var llmCard = ce('div', 'card card-accent');
+  elAppend(llmCard, 'div', 'card-label', '双端点回退');
+  elAppend(llmCard, 'p', '', '主用端点（WATCHDOG_LLM_BASE_URL）失败后自动切换到备用端点（WATCHDOG_LLM_BASE_URL_2）。两个端点各自独立配置 API Key、模型和格式（支持 Anthropic 和 OpenAI 两种 API 格式）。');
+  parent.appendChild(llmCard);
+
+  makeExpandable(parent, 'LLM 提示词（Prompt）设计', function(body) {
+    elAppend(body, 'p', '', 'LLM 收到的提示词包含以下关键指令：');
+    var prompts = [
+      '仅关注 Claude 的最后一条消息，忽略之前的对话',
+      '必须理解 Claude Code UI 符号体系（✳ 正在执行、✔ 已完成、◼ 待处理等）',
+      '基于最后一条消息分类为三种之一：decision_needed / task_complete / idle_unknown',
+      '输出严格 JSON 格式：category + confidence + reasoning + summary'
+    ];
+    for (var i = 0; i < prompts.length; i++) {
+      var d = ce('div', '');
+      d.style.padding = '4px 0';
+      d.style.fontSize = '14px';
+      d.textContent = (i+1) + '. ' + prompts[i];
+      body.appendChild(d);
+    }
+  });
+
+  // Classification results
+  elAppend(parent, 'h2', '', '分类结果');
+
+  var resultCards = [
+    ['card card-yellow', 'decision_needed（黄）', 'Claude 在等用户做判断或选择。需要人工介入确认方案、审批操作。看门狗仅通知，不自动干预。'],
+    ['card card-green', 'task_complete（绿）', 'Claude 已完成工作，等待验收。可能是代码已写完、PR 已创建、测试已通过等。'],
+    ['card card-blue', 'idle_unknown（蓝）', '无法自动判断空闲原因。可能是中途中断、不明确的状态等。作为兜底分类。']
+  ];
+  for (var j = 0; j < resultCards.length; j++) {
+    var card = ce('div', resultCards[j][0]);
+    elAppend(card, 'div', 'card-label', resultCards[j][1]);
+    elAppend(card, 'p', '', resultCards[j][2]);
+    parent.appendChild(card);
+  }
+
+  // Code example
+  elAppend(parent, 'h2', '', '源码示例：噪音过滤函数');
+  makeCodeBlock(parent,
+    'def _strip_noise(lines):\n' +
+    '    """Remove noise lines (separators, status bars, empty lines)."""\n' +
+    '    clean = []\n' +
+    '    for line in lines:\n' +
+    '        if any(pat.search(line) for pat in _NOISE_PATTERNS):\n' +
+    '            continue\n' +
+    '        clean.append(line)\n' +
+    '    return clean',
+    '— 源自 scripts/classify_idle.py:77-84'
+  );
+}
+
+function buildSection6(parent) {
+  elAppend(parent, 'h1', '', '⚖ 方案对比');
+  elAppend(parent, 'p', 'subtitle', '与替代方案的比较和独特优势');
+
+  // Comparison table
+  elAppend(parent, 'h2', '', '替代方案对比');
+
+  var cmpTable = ce('div', 'table-wrap');
+  var cmptable = ce('table', '');
+  var cmpthead = ce('thead', '');
+  var cmptr = ce('tr', '');
+  elAppend(cmptr, 'th', '', '维度');
+  elAppend(cmptr, 'th', '', 'amux (杀进程)');
+  elAppend(cmptr, 'th', '', 'claude-tmux-orchestration');
+  elAppend(cmptr, 'th', '', '内置 stream watchdog');
+  elAppend(cmptr, 'th', '', '本项目');
+  cmpthead.appendChild(cmptr);
+  cmptable.appendChild(cmpthead);
+
+  var cmptbody = ce('tbody', '');
+  var cmpRows = [
+    ['恢复方式', '杀掉进程重启', '编排调度', 'SSE 断流检测', 'Ctrl-C + 继续（保留上下文）'],
+    ['破坏性', '高（丢失上下文）', '中', '低', '低（非破坏性）'],
+    ['检测维度', '进程存活', '任务编排', 'SSE 流', '三路信号'],
+    ['空闲分类', '无', '无', '无', '关键字 + LLM'],
+    ['通知系统', '基础', '基础', '无', '10 种模板 + 日报'],
+    ['部署复杂度', '低', '高', '极低', '低（零依赖）'],
+    ['适用场景', '简单自动化', '多任务编排', 'SSE 监控', '长时间自主编码']
+  ];
+  for (var i = 0; i < cmpRows.length; i++) {
+    cmptr = ce('tr', '');
+    for (var j = 0; j < cmpRows[i].length; j++) {
+      var td = ce('td', '', cmpRows[i][j]);
+      if (j === 0) td.style.fontWeight = '500';
+      if (j === 4) td.style.color = 'var(--accent2)';
+      cmptr.appendChild(td);
+    }
+    cmptbody.appendChild(cmptr);
+  }
+  cmptable.appendChild(cmptbody);
+  cmpTable.appendChild(cmptable);
+  parent.appendChild(cmpTable);
+
+  // Key differences
+  elAppend(parent, 'h2', '', '核心区别详解');
+
+  var diffs = [
+    ['card card-red', 'amux：杀进程方式', 'amux 通过杀掉整个 claude 进程来恢复会话。这意味着当前所有未保存的上下文、对话历史、工具调用状态全部丢失。虽然"简单粗暴"能保证恢复，但代价太大 —— 特别是当 Claude 正在进行复杂重构时，一次杀进程可能让半小时的工作白费。'],
+    ['card card-blue', 'claude-tmux-orchestration：编排偏重', '这个项目侧重于多会话编排和任务调度，适合管理多个并行任务。但对于单会话的卡住检测和恢复能力较弱，部署和配置也比较复杂，对于个人开发者来说过于重量级。'],
+    ['card card-yellow', '内置 stream watchdog：仅抓断流', 'Claude 内置的 stream watchdog 只监控 SSE（Server-Sent Events）连接的断流情况。但很多时候会话"卡住"并不是网络断流，而是 Claude 在等待权限确认、或陷入了无限循环 —— 这时候 SSE 连接是正常的，但实质上没有产出。']
+  ];
+  for (var k = 0; k < diffs.length; k++) {
+    var card = ce('div', diffs[k][0]);
+    elAppend(card, 'div', 'card-label', diffs[k][1]);
+    elAppend(card, 'p', '', diffs[k][2]);
+    parent.appendChild(card);
+  }
+
+  // Unique advantages
+  elAppend(parent, 'h2', '', '四大独特优势');
+
+  var advs = [
+    ['\u{1F50E}', '三路检测', '屏幕哈希 + JSONL 日志 + token 数，三重信号交叉验证，极大降低误报率。即使屏幕有噪音变化（如计时器），JSONL 和 token 仍能准确判断。'],
+    ['\u{1F6E1}', '非破坏性恢复', 'Ctrl-C 只是中断当前操作，不终止进程。会话上下文、编辑历史、文件变更全部保留。比杀进程安全得多。'],
+    ['\u{1F916}', 'LLM 空闲分类', '关键字匹配 + LLM 语义分析双层策略，精准区分等待决策、任务完成、未知状态。不是简单的超时判断，而是理解上下文。'],
+    ['\u{1F4E8}', '10 种通知模板', '覆盖完整生命周期：启动、卡住、干预、恢复、空闲分类（3 种）、早报、晚报、每日汇总。每种模板包含不同颜色标记和详细信息。']
+  ];
+  for (var m = 0; m < advs.length; m++) {
+    var advCard = ce('div', 'card card-accent');
+    advCard.style.display = 'flex';
+    advCard.style.alignItems = 'flex-start';
+    advCard.style.gap = '14px';
+    var icon = ce('span', '', advs[m][0]);
+    icon.style.fontSize = '24px';
+    icon.style.flexShrink = '0';
+    icon.style.marginTop = '2px';
+    advCard.appendChild(icon);
+    var advBody = ce('div', '');
+    advBody.style.flex = '1';
+    elAppend(advBody, 'div', 'card-label', advs[m][1]);
+    elAppend(advBody, 'p', '', advs[m][2]);
+    advCard.appendChild(advBody);
+    parent.appendChild(advCard);
+  }
+}
+
+function buildSection7(parent) {
+  elAppend(parent, 'h1', '', '\u{1F3AF} 创新总结与快速开始');
+  elAppend(parent, 'p', 'subtitle', '回顾核心创新点，上手使用项目');
+
+  // Innovation summary
+  elAppend(parent, 'h2', '', '创新总结');
+
+  var summaryCard = ce('div', 'card card-accent');
+  elAppend(summaryCard, 'p', '', 'claude-session-watchdog 是目前唯一同时实现"三路检测 + 非破坏性恢复 + LLM 空闲分类 + 完整通知系统"的 Claude Code 会话监控工具。它解决了长时间自主编码场景下 Claude 会话卡住无人处理的核心痛点，让你可以安心离开电脑，信任看门狗在需要时自动恢复或通知你。');
+  parent.appendChild(summaryCard);
+
+  // Quick start
+  elAppend(parent, 'h2', '', '快速开始');
+
+  makeCodeBlock(parent,
+    '# 1. 克隆项目\n' +
+    'git clone https://github.com/zwyin/claude-session-watchdog.git\n' +
+    'cd claude-session-watchdog\n' +
+    '\n' +
+    '# 2. 配置飞书通知（可选，不配置则仅发 macOS 通知）\n' +
+    'cp .env.example .env\n' +
+    '# 编辑 .env 填入 FEISHU_WEBHOOK 和 FEISHU_SECRET\n' +
+    '\n' +
+    '# 3. 启动看门狗\n' +
+    './scripts/watchdog.sh start\n' +
+    '\n' +
+    '# 4. 查看状态\n' +
+    './scripts/watchdog.sh status\n' +
+    '\n' +
+    '# 5. 查看日志\n' +
+    './scripts/watchdog.sh log',
+    '— 快速开始命令'
+  );
+
+  elAppend(parent, 'h3', '', '使用模式');
+  var modes = [
+    './scripts/watchdog.sh start — 启动后台守护进程',
+    './scripts/watchdog.sh run — 单次检测（调试用）',
+    './scripts/watchdog.sh daemon — 前台循环运行（用于 launchd）',
+    './scripts/watchdog.sh stop — 停止守护进程',
+    './scripts/watchdog.sh sessions — 查看当前监控的会话',
+    './scripts/watchdog.sh health — 健康检查',
+    './scripts/watchdog.sh test-notify — 测试通知通道'
+  ];
+  for (var i = 0; i < modes.length; i++) {
+    var d = ce('div', '');
+    d.style.padding = '6px 0';
+    d.style.borderBottom = '1px solid var(--border)';
+    d.style.fontSize = '14px';
+    d.style.fontFamily = '"SF Mono", "Fira Code", monospace';
+    d.textContent = modes[i];
+    parent.appendChild(d);
+  }
+
+  // Quiz
+  buildQuiz(parent);
+
+  // Footer
+  elAppend(parent, 'h2', '', '延伸阅读');
+  var links = [
+    '项目 README：完整安装和配置文档',
+    'CHANGELOG.md：版本更新历史',
+    'scripts/ 目录：所有源码，可直接阅读',
+    'tests/ 目录：测试用例'
+  ];
+  for (var j = 0; j < links.length; j++) {
+    var d2 = ce('div', '');
+    d2.style.padding = '6px 0';
+    d2.style.fontSize = '14px';
+    d2.textContent = '• ' + links[j];
+    parent.appendChild(d2);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// SECTION BUILDER MAP
+// ══════════════════════════════════════════════════════════════════════════
+
+var SECTION_BUILDERS = [
+  buildSection0,
+  buildSection1,
+  buildSection2,
+  buildSection3,
+  buildSection4,
+  buildSection5,
+  buildSection6,
+  buildSection7
+];
+
+// ══════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════
+
+function init() {
+  // Apply saved theme
+  applyTheme(loadTheme());
+
+  // Build chrome
+  buildTopbar();
+  buildSidebar();
+
+  // Build main content
+  var main = document.getElementById('main');
+
+  for (var i = 0; i < SECTIONS.length; i++) {
+    var section = ce('div', 'section');
+    section.id = 'section-' + SECTIONS[i].id;
+    if (i === 0) section.classList.add('active');
+    SECTION_BUILDERS[i](section);
+    main.appendChild(section);
+  }
+
+  // Navigate to first section
+  navigateTo('guide');
+}
+
+// Start
+init();
+</script>
+
+</body>
+</html>

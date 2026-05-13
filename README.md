@@ -3,9 +3,21 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/badge/version-2.0.5-brightgreen.svg)
 
+English | [中文](README_zh-CN.md)
+
 Auto-monitor tmux Claude Code sessions, detect stuck sessions, and auto-intervene.
 
+**[Interactive Walkthrough](docs/interactive-guide.html)** — open in a browser for architecture diagrams, flow demos, and a quiz.
+
+## Why
+
+Once you move beyond the basics of Claude Code, you inevitably start running multiple sessions in parallel — different projects, or even multiple sessions within one project (one writing specs, another implementing code). Since closing the Claude CLI terminates the session, tmux becomes the standard way to keep sessions alive across locations: office, home, commute.
+
+But this creates a new problem: **session state management**. With 5 or 10 sessions running, you can't keep track of which ones are progressing, which are stuck waiting for an API response, and which have silently stalled. You check in on a session only to find it's been idle for hours. The watchdog solves this — it watches all your sessions continuously, alerts you when something is wrong, and can auto-recover stuck sessions without losing context.
+
 ## How It Works
+
+![How it works](docs/how-it-works.png)
 
 ```
 Sample all tmux panes every 15 seconds
@@ -26,9 +38,9 @@ Output resumes              --> Log recovered event
 ## Features
 
 - **Triple detection** -- screen-content hash (timer-noise filtered), JSONL session-log last record, and output-token stagnation run in parallel; all three must agree before declaring a session stuck
-- **Auto-intervention** -- sends Ctrl-C followed by a continue prompt after 15 minutes of inactivity, with a cooldown period to prevent flapping
+- **Auto-intervention** -- non-destructive: sends Ctrl-C followed by a continue prompt after 15 minutes of inactivity (10-minute cooldown to prevent flapping), without killing the process or losing context
 - **Idle classification with LLM** -- keyword-based matching plus optional LLM semantic analysis (primary + fallback endpoints) to classify idle sessions as *decision needed*, *task complete*, or *unknown*
-- **Feishu / Lark notifications** -- HMAC-signed webhook with 10 template types (stuck, intervene, recovered, start, daily, morning report, evening report, idle)
+- **Feishu / Lark notifications** -- HMAC-signed webhook with 10 template types (stuck, intervene, recovered, start, daily, morning/evening report, idle decision/complete/unknown)
 - **macOS local notifications** -- native `osascript` alerts as a zero-config fallback
 - **Periodic reports** -- morning report (08:00, covers overnight) and evening report (22:00, covers daytime) with per-session breakdowns
 - **Event self-review** -- LLM audits past detection events to surface false positives and tuning suggestions
@@ -41,6 +53,7 @@ Output resumes              --> Log recovered event
 | **Python 3** | JSON parsing, HMAC signing, Feishu notification delivery, idle classification. |
 | **macOS** | Uses `osascript` for local notifications and `md5` for hashing. Linux would need command replacements. |
 | **Auto-permission wrapper** | Unattended sessions need a wrapper like `claude-yes` or `agent-yes` to auto-approve Claude Code permission prompts. Without this, the watchdog cannot distinguish "waiting for permission" from "genuinely stuck". |
+| **Feishu group bot** *(optional)* | Adds a bot to a Feishu group chat to deliver real-time alerts (stuck, recovered, idle classification) so you can stay informed without checking tmux. |
 
 ## Quick Start
 
@@ -83,18 +96,34 @@ cp .env.example .env
 
 ### Environment Variables (`.env`)
 
-| Variable | Default | Description |
-|---|---|---|
-| `FEISHU_WEBHOOK` | *(empty)* | Feishu bot webhook URL. Leave empty to disable Feishu notifications. |
-| `FEISHU_SECRET` | *(empty)* | Feishu webhook signing secret for HMAC verification. |
-| `WATCHDOG_LLM_API_KEY` | *(empty)* | API key for idle-classification LLM. Without this, only keyword matching is used. |
-| `WATCHDOG_LLM_BASE_URL` | `https://api.anthropic.com` | LLM API base URL (any OpenAI- or Anthropic-compatible endpoint). |
-| `WATCHDOG_LLM_MODEL` | `claude-haiku-4-5-20251001` | Model name for idle classification. |
-| `WATCHDOG_LLM_FORMAT` | `anthropic` | API format: `anthropic` or `openai`. |
-| `WATCHDOG_LLM_API_KEY_2` | *(empty)* | Fallback endpoint API key (used when primary fails). |
-| `WATCHDOG_LLM_BASE_URL_2` | *(empty)* | Fallback endpoint base URL. |
-| `WATCHDOG_LLM_MODEL_2` | *(empty)* | Fallback endpoint model name. |
-| `WATCHDOG_LLM_FORMAT_2` | `openai` | Fallback API format. |
+**Minimum config for basic use** — no `.env` needed. The watchdog works out of the box with macOS notifications and keyword-only idle classification. Configure the following only when you need the corresponding feature.
+
+#### Notification (optional)
+
+| Variable | Default | Required? | Description |
+|---|---|---|---|
+| `FEISHU_WEBHOOK` | *(empty)* | No | Feishu bot webhook URL. Both `FEISHU_WEBHOOK` and `FEISHU_SECRET` must be set to enable Feishu notifications. If either is missing, only macOS local notifications are sent. |
+| `FEISHU_SECRET` | *(empty)* | No | Feishu webhook signing secret for HMAC verification. |
+
+#### LLM idle classification (optional)
+
+| Variable | Default | Required? | Description |
+|---|---|---|---|
+| `WATCHDOG_LLM_API_KEY` | *(empty)* | No | API key for idle-classification LLM. **Without this, LLM classification is skipped entirely** — idle sessions are classified by keyword matching only (lower accuracy). |
+| `WATCHDOG_LLM_BASE_URL` | `https://api.anthropic.com` | No | LLM API base URL. Works with any OpenAI- or Anthropic-compatible endpoint. |
+| `WATCHDOG_LLM_MODEL` | `claude-haiku-4-5-20251001` | No | Model name for idle classification. |
+| `WATCHDOG_LLM_FORMAT` | *(auto-detect)* | No | API format: `anthropic` or `openai`. Leave empty to auto-detect from the base URL. |
+
+#### Fallback LLM endpoint (optional)
+
+Used only when the primary endpoint fails. If `WATCHDOG_LLM_API_KEY_2` is not set, no fallback is attempted.
+
+| Variable | Default | Required? | Description |
+|---|---|---|---|
+| `WATCHDOG_LLM_API_KEY_2` | *(empty)* | No | Fallback endpoint API key. |
+| `WATCHDOG_LLM_BASE_URL_2` | *(empty)* | No | Fallback endpoint base URL. |
+| `WATCHDOG_LLM_MODEL_2` | *(empty)* | No | Fallback endpoint model name. |
+| `WATCHDOG_LLM_FORMAT_2` | `openai` | No | Fallback API format. |
 
 ### Tuning Parameters (in `scripts/watchdog.sh`)
 
@@ -172,6 +201,8 @@ State is stored as flat files under `~/.claude/watchdog-state/` -- no database r
 | `scripts/report_summary.py` | Period summary statistics for morning/evening reports |
 | `scripts/jsonl_age.py` | JSONL last-record age extraction |
 | `scripts/notify-templates.json` | Feishu notification templates (10 types) |
+| `docs/interactive-guide.html` | Interactive project walkthrough (open in browser) |
+| `docs/how-it-works.png` | "How It Works" infographic |
 | `.env.example` | Configuration template |
 | `~/.claude/watchdog.pid` | Background daemon PID |
 | `~/.claude/watchdog.lock` | Process lock (mkdir-based atomic lock) |
@@ -186,4 +217,4 @@ State is stored as flat files under `~/.claude/watchdog-state/` -- no database r
 
 ---
 
-> Chinese design documents (problem background, community solutions, progressive approach, monitoring plan) are available in [`docs/design/`](docs/design/).
+> **中文文档**: [README_zh-CN](README_zh-CN.md) | [设计文档](docs/design/) | [互动式导览](docs/interactive-guide.html)

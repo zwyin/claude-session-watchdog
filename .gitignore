@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+project_study_claude-session-watchdog/
 .DS_Store
 __pycache__/
 *.pyc
@@ -17,3 +18,6 @@ htmlcov/
 dist/
 build/
 .mypy_cache/
+review-records.md
+review-round1-content-accuracy.txt
+infographic/

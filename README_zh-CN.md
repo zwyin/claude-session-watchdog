@@ -1,7 +1,7 @@
 # Claude Code 会话看门狗
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-2.0.5-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-2.0.6-brightgreen.svg)
 [English](README.md) | 中文
 
 自动监控 tmux 中的 Claude Code 会话，检测卡住的会话并自动恢复。

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code tmux session watchdog v2.0.5
+# Claude Code tmux session watchdog v2.0.6
 # Monitors all tmux sessions running claude-yes/claude, detects stuck sessions,
 # logs events, sends notifications, and auto-intervenes.
 #
@@ -17,7 +17,7 @@ if [ -f "$SCRIPT_DIR/../.env" ]; then
   # shellcheck disable=SC1090
   source "$SCRIPT_DIR/../.env"
   # export 所有 WATCHDOG_ 和 FEISHU_ 变量，使 python3 子进程可通过 os.environ 读取
-  for var in $(compgen -v | grep -E '^(WATCHDOG_|FEISHU_)'); do
+  for var in $(set | grep -oE '^(WATCHDOG_|FEISHU_)[^=]*' | sort -u); do
     export "$var" 2>/dev/null || true
   done
 fi
@@ -35,7 +35,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # ── Version ─────────────────────────────────────────────────────────────────
-VERSION="2.0.5"
+VERSION="2.0.6"
 
 # ── 配置参数 ────────────────────────────────────────────────────────────────
 # 所有持久化状态统一放在 ~/.claude/ 目录下
@@ -53,6 +53,7 @@ DAILY_SUMMARY_HOUR=22      # 晚报发送时间（22:00）
 MORNING_SUMMARY_HOUR=08    # 早报发送时间（08:00，必须补零匹配 date +%H）
 JSONL_STALE_THRESHOLD=600  # JSONL 日志无新记录判定阈值（600s = 10 分钟）
 IDLE_CLASSIFY_THRESHOLD=600  # 空闲多久后触发分类通知（600s = 10 分钟）
+ZOMBIE_JSONL_AGE=86400       # JSONL 无新记录超过此值（秒）视为僵尸会话，跳过检测
 
 # 飞书机器人通知（通过 .env 或环境变量设置，不配置则仅发 macOS 通知）
 FEISHU_WEBHOOK="${FEISHU_WEBHOOK:-}"
@@ -68,7 +69,7 @@ get_model_name() {
   fi
   if [ -n "$session" ]; then
     local model
-    model=$(tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
+    model=$(timeout 5 tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
       | sed $'s/\xc2\xa0/ /g' \
       | grep -oE '模型:[[:space:]]*[^ |]+' | head -1 | sed 's/模型:[[:space:]]*//' | tr -d '[:space:]' || true)
     if [ -n "$model" ]; then
@@ -331,14 +332,14 @@ send_period_summary() {
   report_json=$(python3 "$SCRIPT_DIR/report_summary.py" "$time_start" "$time_end" 2>/dev/null || echo '{}')
 
   local stuck interrupt recovered avg_dur idle_total idle_complete idle_decision details
-  stuck=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('stuck',0))" 2>/dev/null || echo 0)
-  interrupt=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('auto_interrupt',0))" 2>/dev/null || echo 0)
-  recovered=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('recovered',0))" 2>/dev/null || echo 0)
-  avg_dur=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('avg_duration',0))" 2>/dev/null || echo 0)
-  idle_total=$(echo "$report_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('idle_decision',0)+d.get('idle_task_complete',0)+d.get('idle_unknown',0))" 2>/dev/null || echo 0)
-  idle_complete=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('idle_task_complete',0))" 2>/dev/null || echo 0)
-  idle_decision=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('idle_decision',0))" 2>/dev/null || echo 0)
-  details=$(echo "$report_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('details_text','无事件'))" 2>/dev/null || echo "无事件")
+  read -r stuck interrupt recovered avg_dur idle_total idle_complete idle_decision details_raw < <(echo "$report_json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+idle_total = d.get('idle_decision',0) + d.get('idle_task_complete',0) + d.get('idle_unknown',0)
+details = d.get('details_text','无事件').replace(chr(10),'\\n')
+print(d.get('stuck',0), d.get('auto_interrupt',0), d.get('recovered',0), d.get('avg_duration',0), idle_total, d.get('idle_task_complete',0), d.get('idle_decision',0), details)
+" 2>/dev/null || echo "0 0 0 0 0 0 0 无事件")
+  local details="${details_raw//\\n/$'\n'}"
 
   local today
   today=$(date '+%Y-%m-%d')
@@ -380,7 +381,7 @@ get_claude_sessions() {
 # 先用 sed 将这些模式归一化为固定字符串，再计算 md5。
 get_pane_hash() {
   local session="$1"
-  tmux capture-pane -t "$session" -p -S -50 2>/dev/null \
+  timeout 5 tmux capture-pane -t "$session" -p -S -50 2>/dev/null \
     | tail -20 \
     | sed -E 's/[0-9]+m [0-9]+s/TIMER/g; s/[0-9]+m[0-9]+s/TIMER/g; s/[0-9]+:[0-9]+(am|pm)?/TIME/g' \
     | md5 2>/dev/null | cut -d' ' -f1 || md5sum 2>/dev/null | cut -d' ' -f1 || echo ""
@@ -391,7 +392,7 @@ get_pane_hash() {
 # 委托 scripts/jsonl_age.py 处理
 get_jsonl_age_seconds() {
   local session="$1"
-  python3 "$SCRIPT_DIR/jsonl_age.py" "$session" 2>/dev/null
+  timeout 10 python3 "$SCRIPT_DIR/jsonl_age.py" "$session" 2>/dev/null || true
 }
 
 # ── 输出 token 数提取 ─────────────────────────────────────────────────────
@@ -412,7 +413,7 @@ get_output_tokens() {
 is_idle_prompt() {
   local session="$1"
   local last_lines
-  last_lines=$(tmux capture-pane -t "$session" -p -S -10 2>/dev/null | tail -8)
+  last_lines=$(timeout 5 tmux capture-pane -t "$session" -p -S -10 2>/dev/null | tail -8)
   # 最后一行是纯 ❯ 提示符 → 空闲
   local last_line
   last_line=$(echo "$last_lines" | tail -1)
@@ -491,6 +492,16 @@ do_check() {
   fi
 
   for session in $sessions; do
+    # ── 一次性获取 JSONL age，供僵尸过滤和后续 stuck 检测共用 ──
+    local jsonl_age_cached
+    jsonl_age_cached=$(get_jsonl_age_seconds "$session")
+
+    # ── 跳过僵尸会话：JSONL 长期无新记录 ──
+    if [ -n "$jsonl_age_cached" ] && [ "$jsonl_age_cached" -ge "$ZOMBIE_JSONL_AGE" ] 2>/dev/null; then
+      log "SKIP zombie: $session (JSONL stale ${jsonl_age_cached}s)"
+      continue
+    fi
+
     # ── 空闲 session：恢复检测 + 空闲分类通知 ──
     if is_idle_prompt "$session"; then
       local was_stuck
@@ -549,8 +560,7 @@ do_check() {
     fi
 
     # ── 信号 2：JSONL 日志最后记录时间 ──
-    local jsonl_age=""
-    jsonl_age=$(get_jsonl_age_seconds "$session")
+    local jsonl_age="${jsonl_age_cached:-}"
     local jsonl_stale="0"
     if [ -n "$jsonl_age" ] && [ "$jsonl_age" -ge "$JSONL_STALE_THRESHOLD" ] 2>/dev/null; then
       jsonl_stale="1"
@@ -683,7 +693,7 @@ start_daemon() {
   (
     trap 'rm -f "$PID_FILE"' EXIT
     while true; do
-      do_check
+      do_check || log "WARN: do_check failed"
       sleep "$SAMPLE_INTERVAL"
     done
   ) &
@@ -785,7 +795,7 @@ run_foreground() {
   log "Watchdog starting in foreground mode (for launchd, pid $$)"
   init_state
   while true; do
-    do_check
+    do_check || log "WARN: do_check failed"
     sleep "$SAMPLE_INTERVAL"
   done
 }

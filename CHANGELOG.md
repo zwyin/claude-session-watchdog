@@ -3,6 +3,22 @@
 All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.7] - 2026-05-17
+
+### Added
+
+- `activate <session>` command to switch tmux client to a specific session
+- Rich session state classification: thinking, tool-executing, sub-agent-running, permission-waiting, idle-prompt, active, zombie
+- Task progress display (✔/◼/◻ counts) in `sessions` command
+- Working directory display in `sessions` command
+- `get_session_state()` and `get_task_progress()` helper functions
+
+### Fixed
+
+- `is_idle_prompt()` false positive: sessions with ✽/⏵⏵ active work symbols are no longer misclassified as idle
+- Zombie sessions marked correctly in `sessions` display
+- `activate` command handles missing session argument gracefully
+
 ## [2.0.6] - 2026-05-16
 
 ### Fixed

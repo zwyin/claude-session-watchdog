@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code tmux session watchdog v2.0.6
+# Claude Code tmux session watchdog v2.0.7
 # Monitors all tmux sessions running claude-yes/claude, detects stuck sessions,
 # logs events, sends notifications, and auto-intervenes.
 #
@@ -35,7 +35,7 @@ if ! command -v python3 &>/dev/null; then
 fi
 
 # ── Version ─────────────────────────────────────────────────────────────────
-VERSION="2.0.6"
+VERSION="2.0.7"
 
 # ── 配置参数 ────────────────────────────────────────────────────────────────
 # 所有持久化状态统一放在 ~/.claude/ 目录下
@@ -395,6 +395,60 @@ get_jsonl_age_seconds() {
   timeout 10 python3 "$SCRIPT_DIR/jsonl_age.py" "$session" 2>/dev/null || true
 }
 
+# ── 会话状态分类（细粒度） ─────────────────────────────────────────────────
+# 解析 tmux pane 内容，返回细粒度状态：
+#   thinking          — 模型正在思考（✻/✽/✳ 符号）
+#   tool-executing    — 工具执行中（⎿ 符号）
+#   sub-agent-running — 子 agent 运行中（⏵⏵ 符号）
+#   permission-waiting — 等待权限确认（accept edits / Allow）
+#   idle-prompt       — 空闲等待用户输入（❯ 提示符）
+#   active            — 其他活跃状态
+get_session_state() {
+  local session="$1"
+  local pane
+  pane=$(timeout 5 tmux capture-pane -t "$session" -p -S -30 2>/dev/null | tail -25)
+  [ -z "$pane" ] && echo "unknown" && return
+
+  local last_line
+  last_line=$(echo "$pane" | tail -1)
+
+  # 检测活跃工作符号（优先级从高到低）
+  if echo "$pane" | grep -qE '⏵⏵'; then
+    echo "sub-agent-running"
+  elif echo "$pane" | grep -qE '✽|✳|✻.*for'; then
+    echo "thinking"
+  elif echo "$last_line" | grep -qE '^  ⎿'; then
+    echo "tool-executing"
+  # 权限确认
+  elif echo "$pane" | grep -qE '(accept edits on|Allow.*\?)'; then
+    echo "permission-waiting"
+  # 空闲判定：❯ 在最后一行且上方无活跃符号
+  elif echo "$last_line" | grep -qE '^\s*❯\s*$'; then
+    echo "idle-prompt"
+  elif echo "$last_line" | grep -qE '^\s*目录:'; then
+    echo "idle-prompt"
+  else
+    echo "active"
+  fi
+}
+
+# ── 任务进度提取 ───────────────────────────────────────────────────────────
+# 从 tmux pane 解析 ✔/◼/◻ 计数，返回格式 "done/total"（如 "3/5"）
+get_task_progress() {
+  local session="$1"
+  local pane
+  pane=$(timeout 5 tmux capture-pane -t "$session" -p -S -30 2>/dev/null | tail -25)
+  [ -z "$pane" ] && echo "" && return
+
+  local done pending todo
+  done=$(echo "$pane" | grep -oE '✔' | wc -l | tr -d ' ')
+  pending=$(echo "$pane" | grep -oE '◼' | wc -l | tr -d ' ')
+  todo=$(echo "$pane" | grep -oE '◻' | wc -l | tr -d ' ')
+  local total=$((done + pending + todo))
+  [ "$total" -eq 0 ] && echo "" && return
+  echo "${done}/${total}"
+}
+
 # ── 输出 token 数提取 ─────────────────────────────────────────────────────
 # 从状态栏提取 "输出:" 字段的数值（如 "228.9k"）。
 # 用于停滞检测：如果输出 token 不变，说明模型没有产出新内容（即使屏幕在变化）。
@@ -407,28 +461,12 @@ get_output_tokens() {
 }
 
 # ── 空闲判定 ───────────────────────────────────────────────────────────────
-# 处于 ❯ 提示符等空闲状态的 session 不应触发卡住检测
-# 匹配模式：❯ 提示符（行首）、权限确认、超时标记、取消提示等
-# 注意：不匹配 ⏵⏵，因为 ⏵⏵ 在子 agent 运行中也会出现
+# 使用 get_session_state 细粒度状态，仅 idle-prompt 和 permission-waiting 视为空闲
 is_idle_prompt() {
   local session="$1"
-  local last_lines
-  last_lines=$(timeout 5 tmux capture-pane -t "$session" -p -S -10 2>/dev/null | tail -8)
-  # 最后一行是纯 ❯ 提示符 → 空闲
-  local last_line
-  last_line=$(echo "$last_lines" | tail -1)
-  if echo "$last_line" 2>/dev/null | grep -qE '^\s*❯\s*$'; then
-    return 0
-  fi
-  # 权限确认、超时、取消提示等明确的等待状态
-  if echo "$last_lines" 2>/dev/null | grep -qE '(accept edits on|\[超时\]|Esc to cancel|waiting for input)'; then
-    return 0
-  fi
-  # 目录状态行（idle prompt 的另一种表现形式）
-  if echo "$last_line" 2>/dev/null | grep -qE '^\s*目录:'; then
-    return 0
-  fi
-  return 1
+  local state
+  state=$(get_session_state "$session")
+  [ "$state" = "idle-prompt" ] || [ "$state" = "permission-waiting" ]
 }
 
 # ── 自动干预：Ctrl-C + 继续任务 ──────────────────────────────────────────
@@ -887,21 +925,25 @@ show_sessions() {
   fi
   echo "=== Claude Code Sessions ==="
   for session in $sessions; do
-    local model tokens jsonl_age idle
+    local model tokens jsonl_age state progress workdir
     model=$(get_model_name "$session")
     tokens=$(get_output_tokens "$session")
     jsonl_age=$(get_jsonl_age_seconds "$session")
-    if is_idle_prompt "$session" 2>/dev/null; then
-      idle="idle"
-    else
-      idle="active"
+    state=$(get_session_state "$session")
+    # 僵尸会话优先标记
+    if [ -n "$jsonl_age" ] && [ "$jsonl_age" -ge "$ZOMBIE_JSONL_AGE" ] 2>/dev/null; then
+      state="zombie"
     fi
+    progress=$(get_task_progress "$session")
+    workdir=$(timeout 5 tmux display-message -t "$session" -p "#{pane_current_path}" 2>/dev/null | sed "s|^$HOME|~|" || true)
     echo ""
-    echo "  Session: $session"
-    echo "  Model:   ${model:-unknown}"
-    echo "  Tokens:  ${tokens:-N/A}"
-    echo "  JSONL:   ${jsonl_age:-N/A}${jsonl_age:+s} since last record"
-    echo "  State:   $idle"
+    echo "  Session:  $session"
+    echo "  State:    $state"
+    [ -n "$progress" ] && echo "  Progress: $progress"
+    echo "  Model:    ${model:-unknown}"
+    echo "  Tokens:   ${tokens:-N/A}"
+    echo "  JSONL:    ${jsonl_age:-N/A}${jsonl_age:+s} since last record"
+    [ -n "$workdir" ] && echo "  Dir:      $workdir"
     # Show stuck status if tracked
     local unchanged notified
     unchanged=$(get_state "$session" "unchanged_since")
@@ -910,7 +952,7 @@ show_sessions() {
       local now stuck_dur
       now=$(date +%s)
       stuck_dur=$((now - unchanged))
-      echo "  Stuck:   ${stuck_dur}s ($((stuck_dur / 60))min)${notified:+ [NOTIFIED]}"
+      echo "  Stuck:    ${stuck_dur}s ($((stuck_dur / 60))min)${notified:+ [NOTIFIED]}"
     fi
   done
 }
@@ -973,6 +1015,38 @@ do_review() {
   python3 "$SCRIPT_DIR/review_events.py" "$time_start" "$time_end"
 }
 
+# ── 激活会话：切换 tmux 客户端到指定会话 ───────────────────────────────────
+activate_session() {
+  local session="${2:-}"
+  if [ -z "$session" ]; then
+    echo "Usage: $0 activate <session>"
+    echo ""
+    echo "Available sessions:"
+    local sessions
+    sessions=$(get_claude_sessions)
+    if [ -z "$sessions" ]; then
+      echo "  (no claude sessions found)"
+    else
+      for s in $sessions; do
+        local state
+        state=$(get_session_state "$s")
+        printf "  %-25s %s\n" "$s" "$state"
+      done
+    fi
+    return 1
+  fi
+  if ! tmux has-session -t "$session" 2>/dev/null; then
+    echo "Session not found: $session"
+    return 1
+  fi
+  tmux switch-client -t "$session" 2>/dev/null
+  if [ $? -eq 0 ]; then
+    echo "Switched to session: $session"
+  else
+    echo "Failed to switch (no attached client?). Try: tmux attach -t $session"
+  fi
+}
+
 # ── 入口 ────────────────────────────────────────────────────────────────────
 case "${1:-run}" in
   start)          start_daemon ;;
@@ -984,10 +1058,11 @@ case "${1:-run}" in
   daily-summary)  send_period_summary "evening_report" "$(date '+%Y-%m-%d')T08:00:00" "$(date '+%Y-%m-%d')T22:00:00" ;;
   review)         do_review "$@" ;;
   log)            show_log "$@" ;;
+  activate)       activate_session "$@" ;;
   sessions)       show_sessions ;;
   health)         health_check ;;
   *)
-    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary|review|log|sessions|health}"
+    echo "Usage: $0 {start|stop|status|run|daemon|test-notify|daily-summary|review|log|sessions|health|activate}"
     exit 1
     ;;
 esac

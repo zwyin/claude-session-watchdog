@@ -1,7 +1,7 @@
 # Claude Code Session Watchdog
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
-![Version](https://img.shields.io/badge/version-2.0.6-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-2.0.7-brightgreen.svg)
 
 English | [中文](README_zh-CN.md)
 

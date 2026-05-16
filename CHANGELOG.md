@@ -12,6 +12,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Add `timeout 10` to `jsonl_age.py` subprocess to prevent per-session stalls
 - Add `do_check || log WARN` fallback for daemon and foreground loops
 - Skip zombie sessions (JSONL stale > 24h) with cached jsonl_age to avoid double calls
+- Throttle zombie skip logging to once per hour per session (prevents log spam)
 - Optimize `send_period_summary` from 8× python3 forks to 1× using `read -r`
 
 ## [2.0.5] - 2026-05-11

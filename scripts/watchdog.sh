@@ -496,10 +496,22 @@ do_check() {
     local jsonl_age_cached
     jsonl_age_cached=$(get_jsonl_age_seconds "$session")
 
-    # ── 跳过僵尸会话：JSONL 长期无新记录 ──
+    # ── 跳过僵尸会话：JSONL 长期无新记录（每小时只记录一次） ──
     if [ -n "$jsonl_age_cached" ] && [ "$jsonl_age_cached" -ge "$ZOMBIE_JSONL_AGE" ] 2>/dev/null; then
-      log "SKIP zombie: $session (JSONL stale ${jsonl_age_cached}s)"
+      local zombie_logged
+      zombie_logged=$(get_state "$session" "zombie_logged")
+      if [ -z "$zombie_logged" ] || [ $((now - zombie_logged)) -ge 3600 ] 2>/dev/null; then
+        log "SKIP zombie: $session (JSONL stale ${jsonl_age_cached}s)"
+        set_state "$session" "zombie_logged" "$now"
+      fi
       continue
+    else
+      # 非僵尸会话清除僵尸标记
+      local zombie_logged
+      zombie_logged=$(get_state "$session" "zombie_logged")
+      if [ -n "$zombie_logged" ]; then
+        set_state "$session" "zombie_logged" ""
+      fi
     fi
 
     # ── 空闲 session：恢复检测 + 空闲分类通知 ──

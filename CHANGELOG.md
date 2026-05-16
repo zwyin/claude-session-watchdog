@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - `is_idle_prompt()` false positive: sessions with ✽/⏵⏵ active work symbols are no longer misclassified as idle
+- Model name extraction now parses status bar (`GLM-5.1\medium\...`) and banner formats correctly
 - Zombie sessions marked correctly in `sessions` display
 - `activate` command handles missing session argument gracefully
 

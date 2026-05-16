@@ -69,6 +69,25 @@ get_model_name() {
   fi
   if [ -n "$session" ]; then
     local model
+    # 方法1: 状态栏格式 "GLM-5.1\medium\..." — 模型名紧跟反斜杠
+    model=$(timeout 5 tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
+      | sed $'s/\xc2\xa0/ /g' \
+      | grep -oE '(GLM|Claude|GPT|gemini|Qwen|DeepSeek)[-_]?[0-9]*\.?[0-9]*[-_]?(mini|plus|pro|air|flash)?\\' \
+      | head -1 | tr -d '\\[:space:]' || true)
+    if [ -n "$model" ]; then
+      echo "$model"
+      return
+    fi
+    # 方法2: 横幅格式 "GLM-5.1 · /Users/..."
+    model=$(timeout 5 tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
+      | sed $'s/\xc2\xa0/ /g' \
+      | grep -oE '(GLM|Claude|GPT|gemini|Qwen|DeepSeek)[-_]?[0-9]*\.?[0-9]*[-_]?(mini|plus|pro|air|flash)?[[:space:]]·' \
+      | head -1 | sed 's/[[:space:]]·//' | tr -d '[:space:]' || true)
+    if [ -n "$model" ]; then
+      echo "$model"
+      return
+    fi
+    # 方法3: "模型: xxx" 格式
     model=$(timeout 5 tmux capture-pane -t "$session" -p -S -12 2>/dev/null \
       | sed $'s/\xc2\xa0/ /g' \
       | grep -oE '模型:[[:space:]]*[^ |]+' | head -1 | sed 's/模型:[[:space:]]*//' | tr -d '[:space:]' || true)
